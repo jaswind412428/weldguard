@@ -1,0 +1,26 @@
+.venv*/
+venv/
+__pycache__/
+datasets/
+data/
+eagle-vlm/
+runs/
+weights/
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.engine
+*.zip
+*.tar
+*.tar.gz
+*.7z
+.env
+.env.*
+*.pem
+*.key
+
+# Local copies; share selected artifacts under results/
+27_229_vlm_preview.jpg
+/bus.jpg
+/weldguard_fold0.yaml

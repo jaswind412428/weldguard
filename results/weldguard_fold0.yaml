@@ -1,0 +1,11 @@
+# Paths are relative to the dataset root; dataset files are not included.
+path: /path/to/LoHi-WELD/kfold_high/fold0
+train: train/images
+val: val/images
+test: ../test/images
+
+names:
+  0: pore
+  1: deposit
+  2: discontinuity
+  3: stain
