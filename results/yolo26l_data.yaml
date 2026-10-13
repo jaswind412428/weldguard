@@ -1,0 +1,11 @@
+path: /home/leo/weldguard/datasets/weld-dataset/kfold_high
+train:
+  - fold0/train/images
+  - test/images
+val: fold0/val/images
+
+names:
+  0: pore
+  1: deposit
+  2: discontinuity
+  3: stain
