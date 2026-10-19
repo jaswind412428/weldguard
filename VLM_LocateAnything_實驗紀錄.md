@@ -30,3 +30,17 @@ v1 轉換程式產出的標註回答使用 `<ref>pore</ref><box>(100,200,300,400
 下一輪應用已修正的 `scripts/prepare_locany_pilot.py`，輸出至新的資料目錄與模型目錄，不覆蓋 v1；先抽查 JSONL 的 prompt、框 token、疊圖與影像路徑，再短訓並檢查真實生成結果，之後才做正式 validation 評估。獨立 test 不用來選提示詞、checkpoint 或超參數。
 
 資料格式依據：[NVIDIA Eagle Data Preparation Guide](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/DATA_PREPARATION.md)。
+
+## 2026-10-19：fold0 train 653 張，v2
+
+**狀態：訓練完成，尚未執行 validation 推論與框級評估。** 修正後資料使用官方座標 token，例如 `<ref>deposit</ref><box><43><247><123><613></box>`，提示詞以 `</c>` 分隔四類。使用者回報 JSONL 653 筆、疊框預覽 653 張、排除 0 張；四類框數與 v1 相同（358、1117、1903、2674）。
+
+v2 沿用 v1 的模型、單卡 RTX 4090、LoRA／凍結、bf16、sdpa、batch 1、梯度累積 1、token 限額、DeepSpeed、checkpoint 與日誌參數；只改資料設定與輸出路徑：
+
+- `--meta_path /home/leo/weldguard/datasets/derived/locany_full_v2/full_recipe.json`
+- `--output_dir /home/leo/weldguard/runs/vlm/locany_fold0_train653_v2`
+- `--max_steps 653`
+
+使用者貼出的結果：`epoch=1.0`、`train_samples=streaming`、`train_runtime=659.1338 s`（10 分 59 秒）、`train_samples_per_second=0.991`、`train_steps_per_second=0.991`、`train_loss=1.6853368023088113`。最終模型已切成兩個 safetensors 檔並保存處理器／tokenizer／推論程式。結束時有 NCCL 程序群組清理警告，沒有影響已回報的訓練完成與存檔。尚未記錄峰值 VRAM、獨立 validation 指標或實際預測圖。
+
+v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接比較定位品質。後續需用同一組 validation 圖、固定提示與生成設定，比較原始預訓練權重和 v2 權重的輸出框；保留原始文字、解析後框及 GT 疊圖。test 仍留待設定固定後評估。
