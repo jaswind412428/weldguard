@@ -112,7 +112,7 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
     return panel
 
 
-def predict(model, processor, tokenizer, image: Image.Image, max_new_tokens: int) -> str:
+def predict(model, processor, tokenizer, image: Image.Image, args) -> str:
     messages = [{"role": "user", "content": [
         {"type": "image", "image": image}, {"type": "text", "text": PROMPT}
     ]}]
@@ -125,12 +125,12 @@ def predict(model, processor, tokenizer, image: Image.Image, max_new_tokens: int
         attention_mask=inputs["attention_mask"],
         image_grid_hws=inputs.get("image_grid_hws"),
         tokenizer=tokenizer,
-        max_new_tokens=max_new_tokens,
+        max_new_tokens=args.max_new_tokens,
         use_cache=True,
-        generation_mode="hybrid",
-        temperature=0,
-        top_p=1.0,
-        repetition_penalty=1.0,
+        generation_mode=args.generation_mode,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        repetition_penalty=args.repetition_penalty,
         verbose=False,
     )
     return response[0] if isinstance(response, tuple) else response
@@ -143,12 +143,26 @@ def main() -> None:
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--repetition-penalty", type=float, default=1.1)
+    parser.add_argument("--generation-mode", choices=("hybrid", "slow", "fast"), default="hybrid")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--images", nargs="*", help="Exact validation filenames to inspect")
     args = parser.parse_args()
     if args.limit < 1 or args.max_new_tokens < 1:
         parser.error("--limit and --max-new-tokens must be positive")
+    if args.temperature < 0 or not 0 < args.top_p <= 1 or args.repetition_penalty <= 0:
+        parser.error("Invalid generation parameters")
     if not torch.cuda.is_available():
         parser.error("CUDA is required")
-    selected = choose_images(args.split / "images", args.split / "labels", args.limit)
+    if args.images:
+        selected = [args.split / "images" / name for name in args.images]
+        for image_path in selected:
+            if image_path.name != str(image_path.relative_to(args.split / "images")) or not image_path.is_file():
+                parser.error(f"Missing validation image: {image_path}")
+    else:
+        selected = choose_images(args.split / "images", args.split / "labels", args.limit)
     output = args.output.expanduser()
     image_output = output / "compare"
     image_output.mkdir(parents=True, exist_ok=True)
@@ -158,12 +172,14 @@ def main() -> None:
         args.model, trust_remote_code=True, torch_dtype=torch.bfloat16,
         attn_implementation="sdpa",
     ).to("cuda").eval()
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     with (output / "predictions.jsonl").open("w", encoding="utf-8") as records:
         for image_path in selected:
             with Image.open(image_path) as source:
                 image = source.convert("RGB")
             truth = ground_truth(args.split / "labels" / f"{image_path.stem}.txt")
-            answer = predict(model, processor, tokenizer, image, args.max_new_tokens)
+            answer = predict(model, processor, tokenizer, image, args)
             predictions, rejected = parse_predictions(answer)
             left = draw_panel(image, truth, f"Ground truth: {len(truth)}")
             right = draw_panel(image, predictions, f"Prediction: {len(predictions)}")
@@ -175,6 +191,11 @@ def main() -> None:
                 "image": str(image_path), "model": args.model, "prompt": PROMPT,
                 "answer": answer, "ground_truth": truth, "predictions": predictions,
                 "rejected_parsed_boxes": rejected,
+                "generation": {
+                    "mode": args.generation_mode, "temperature": args.temperature,
+                    "top_p": args.top_p, "repetition_penalty": args.repetition_penalty,
+                    "max_new_tokens": args.max_new_tokens, "seed": args.seed,
+                },
             }
             records.write(json.dumps(record, ensure_ascii=False) + "\n")
             records.flush()

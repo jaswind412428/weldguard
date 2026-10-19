@@ -44,3 +44,7 @@ v2 沿用 v1 的模型、單卡 RTX 4090、LoRA／凍結、bf16、sdpa、batch 1
 使用者貼出的結果：`epoch=1.0`、`train_samples=streaming`、`train_runtime=659.1338 s`（10 分 59 秒）、`train_samples_per_second=0.991`、`train_steps_per_second=0.991`、`train_loss=1.6853368023088113`。最終模型已切成兩個 safetensors 檔並保存處理器／tokenizer／推論程式。結束時有 NCCL 程序群組清理警告，沒有影響已回報的訓練完成與存檔。尚未記錄峰值 VRAM、獨立 validation 指標或實際預測圖。
 
 v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接比較定位品質。後續需用同一組 validation 圖、固定提示與生成設定，比較原始預訓練權重和 v2 權重的輸出框；保留原始文字、解析後框及 GT 疊圖。test 仍留待設定固定後評估。
+
+### v2 初次 validation 預覽（尚非正式評估）
+
+以 8 張 fold0 validation 影像試跑；初版預覽程式使用 hybrid、`temperature=0`、`top_p=1.0`、`repetition_penalty=1.0`、`max_new_tokens=512`。8 張全部解析出 0 個有效框，每張有 22–47 個格式上像框但被拒收的項目。使用者貼出的兩張原始回答顯示類別文字畸變（如 `depositstainuity`、`ststain`、`disstainuity`）、大量重複框及零面積框，因此不能把解析出的 0 框歸咎於單純的 regex 錯誤，也不能將這次預覽當作已完成的 Recall 指標。下一步以官方 worker 常用的 `temperature=0.7`、`top_p=0.9`、`repetition_penalty=1.1` 重跑相同兩張圖，保留原始輸出，判斷生成設定的影響。
