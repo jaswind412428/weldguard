@@ -71,3 +71,7 @@ v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接�
 在上述短試訓基礎上只將學習率由 `5e-5` 降至 `2e-5`，其餘設定和 100 steps 不變。輸出：`/home/leo/weldguard/runs/vlm/locany_block6_lr2e5_probe100`。使用者回報 `train_runtime=100.34 s`、`train_loss=2.4146`。相同兩張 validation 圖：`25_12.jpg` 有 GT 7、有效預測 0、拒收 51；`25_125.jpg` 有 GT 4、有效預測 0、拒收 1。原始回答含 `disore`、反覆的 `discontin`，另一張只有 `dis` 並預測接近全圖的框。較低學習率沒有在此設定下修復類別輸出。
 
 隨後核對 NVIDIA `py_apply_chat_template`：訓練資料的使用者提示詞是 `<image-1> Locate...`（標記後有空格），舊預覽程式將 image 元素置於 text 前，產生 `<image-1>Locate...`（無空格）。這是可重現性上的輸入差異，**尚未證明是模型退化主因**。預覽程式已改成與訓練資料相同的文字及 content 順序；所有模型需用新預覽版本在相同兩張圖重新比較，舊預覽結果保留但不能作為最終模型間比較。
+
+提示詞對齊後，低學習率 100-step 模型在 `25_12.jpg` 有效框 0／拒收 3，`25_125.jpg` 有效框 2／拒收 6，仍有問題。同時抽查五筆 train JSONL 的處理器 token 數（含最多 30 個框的樣本）：完整長度 306、313、514、466、444；使用 `truncation=True` 的保留長度及 `</box>` 數都與未截斷版本一致。因此**這五筆**沒有受到 2048 token 上限截斷；尚未證明全部 653 筆皆無截斷。
+
+接著只將生成模式由 hybrid 改為 `slow`，沿用同一低學習率模型、提示詞、temperature 0.7、top-p 0.9、repetition penalty 1.1 與兩張 validation 圖：`25_12.jpg` 有效框 4／拒收 0（GT 7），`25_125.jpg` 有效框 6／拒收 0（GT 4）。這表示**輸出格式錯亂很大程度受生成模式影響**，不能將 hybrid 的 0 個有效框直接歸咎於模型未學習。但 4、6 個框尚未做 IoU 與類別匹配，不能稱為有效偵測或給出 Precision／Recall。下一步固定 `slow`，讓預訓練模型與 v2 也跑同兩張，再計算類別一致且 IoU≥0.5 的 TP／FP／FN；以更多 validation 圖確認趨勢。
