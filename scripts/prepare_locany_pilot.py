@@ -17,7 +17,10 @@ from PIL import Image, ImageDraw
 
 NAMES = {0: "pore", 1: "deposit", 2: "discontinuity", 3: "stain"}
 COLORS = {0: "#ff4040", 1: "#00b8d9", 2: "#f5a623", 3: "#21b573"}
-PROMPT = "Detect all weld defects in <image-1>."
+PROMPT = (
+    "<image-1> Locate all the instances that matches the following description: "
+    "pore</c>deposit</c>discontinuity</c>stain."
+)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
@@ -161,7 +164,9 @@ def main() -> None:
     ) as manifest:
         for image_path, boxes in selected:
             answer = "".join(
-                f"<ref>{NAMES[class_id]}</ref><box>({','.join(map(str, box))})</box>"
+                f"<ref>{NAMES[class_id]}</ref><box>"
+                + "".join(f"<{coordinate}>" for coordinate in box)
+                + "</box>"
                 for class_id, box in boxes
             )
             record = {

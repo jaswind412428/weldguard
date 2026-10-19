@@ -1,0 +1,32 @@
+# LocateAnything 訓練實驗紀錄
+
+## 2026-10-19：fold0 train 653 張，v1
+
+**狀態：訓練完成；定位品質尚未評估。此輪標註框格式與官方規格不符，不能當作正式微調成果。**
+
+| 項目 | 紀錄 |
+| --- | --- |
+| 基礎模型 | `nvidia/LocateAnything-3B` |
+| 原始碼 | NVIDIA Eagle `Embodied`，使用者回報 commit `783f656` |
+| 訓練資料 | LoHi-WELD `kfold_high/fold0/train`，653 張；val 164 張與 test 205 張未用於此輪訓練 |
+| 資料設定 | `/home/leo/weldguard/datasets/derived/locany_full/full_recipe.json`，`train_full.jsonl` 653 筆；`repeat_time=1.0`、`data_augment=false` |
+| 輸出 | `/home/leo/weldguard/runs/vlm/locany_fold0_train653_v1` |
+| GPU | RTX 4090，單卡；峰值 VRAM 尚未紀錄 |
+| 分散式與精度 | `torch.distributed.run --nproc_per_node=1`，`LAUNCHER=pytorch`，`bf16=True`，DeepSpeed ZeRO stage 2 |
+| 注意力 | `--attn_implementation sdpa`；使用者另將 Eagle 的 MoonViT 注意力硬編碼從 `flash_attention_2` 本機改為 `sdpa` |
+| 凍結與 LoRA | `freeze_llm=True`、`freeze_backbone=True`、`freeze_mlp=False`、`use_llm_lora=8`、`use_backbone_lora=0` |
+| 訓練長度 | `max_steps=653`；日誌 `epoch=1.0`、`train_samples=streaming`。不能據此保證每張圖恰好使用一次 |
+| Batch | `per_device_train_batch_size=1`、`gradient_accumulation_steps=1`；有效 batch 約 1（單卡） |
+| Token 與資料載入 | `max_seq_length=2048`、`max_num_tokens_per_sample=2048`、`max_num_tokens=2048`、`packing_buffer_size=4`、`dataloader_num_workers=0` |
+| 儲存與日誌 | `save_strategy=steps`、`save_steps=100`、`save_total_limit=3`、`logging_steps=10`、`report_to=none`、`do_train=True` |
+| 學習率 | 指令未明確指定，使用訓練程式預設值；日誌後段從 `1.32e-5` 下降至 `2.30e-7`。需從 `training_args.bin` 或日誌確認初始值與 scheduler |
+| 結果 | `train_runtime=530.4881 s`（約 8 分 50 秒）；`train_loss=1.0656933842902891`；後段每 10 steps loss 約 0.98–1.02 |
+| 權重 | 最終兩個 `model-*.safetensors`，約 4.7 GB + 2.6 GB；訓練時設每 100 steps 存 checkpoint |
+
+### 重要資料格式問題
+
+v1 轉換程式產出的標註回答使用 `<ref>pore</ref><box>(100,200,300,400)</box>`。NVIDIA 官方要求 `<ref>pore</ref><box><100><200><300><400></box>`，座標各自是 0–1000 的特殊 token；官方物件偵測提示也以 `</c>` 分隔類別。v1 的 loss 下降只能說明模型擬合了目前訓練文字，不能證明它學會符合官方格式的缺陷定位。此問題於 v1 完成後查出，不能回溯改寫該次實驗。
+
+下一輪應用已修正的 `scripts/prepare_locany_pilot.py`，輸出至新的資料目錄與模型目錄，不覆蓋 v1；先抽查 JSONL 的 prompt、框 token、疊圖與影像路徑，再短訓並檢查真實生成結果，之後才做正式 validation 評估。獨立 test 不用來選提示詞、checkpoint 或超參數。
+
+資料格式依據：[NVIDIA Eagle Data Preparation Guide](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/DATA_PREPARATION.md)。
