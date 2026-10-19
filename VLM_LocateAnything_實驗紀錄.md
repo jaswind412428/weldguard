@@ -52,3 +52,16 @@ v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接�
 以官方 worker 常用生成參數重跑兩張：原始預訓練模型在 `25_12.jpg` 輸出 1 個有效框、`25_125.jpg` 輸出 4 個有效框，均未被拒收；v2 模型兩張仍各有 0 個有效框、分別拒收 12 與 51 個，原始回答中有 `depositst`、`stst`、`disdis` 等非資料集類別及反覆／顛倒座標。原始模型有效格式不代表框的位置或類別已正確；但 v2 的格式退化並非只有貪婪解碼造成。
 
 後續核對官方程式時發現：v2 指令沒有明確指定 `--block_size`。使用者在其 checkout 確認預設為 **4**，`causal_attn=False`；訓練日誌確認 `learning_rate=5e-5`、`lr_scheduler_type=linear`、`warmup_steps=0`。NVIDIA 官方 LocateAnything LoRA 範例明確設 `block_size=6`、rank 64、學習率 `2e-5`、warmup 500（範例總步數 5000）。v2 為 rank 8、block size 4、較高初始學習率且無 warmup。這些是候選原因，**尚未證明哪一項造成退化**。v2 保留的中途 checkpoint 為 500、600、653。下一步先查是否有樣本因 2048 token 限額被跳過，再設計小規模對照試驗，不直接再跑 653 steps。
+
+## 2026-10-20：block size 6，100 steps 短試訓
+
+使用與 v2 相同的 653 筆正確格式資料、基礎模型、LoRA rank 8、單卡 batch 1、sdpa、2048 token 限額及其餘訓練設定；明確加 `--block_size 6`，訓練縮短為 `--max_steps 100`。輸出：`/home/leo/weldguard/runs/vlm/locany_block6_probe100`。結果：`train_runtime=100.34 s`、`train_loss=2.1693`、日誌 `epoch=1.0`、`train_samples=streaming`。100-step loss 不與 v2 的 653-step loss 直接比較。
+
+相同兩張 validation 圖，固定生成參數（hybrid、temperature 0.7、top-p 0.9、repetition penalty 1.1、seed 42）：
+
+| 影像 | GT 框 | 解析成功 | 拒收 | 觀察 |
+| --- | ---: | ---: | ---: | --- |
+| `25_12.jpg` | 7 | 5 | 2 | 五框全為 `discontinuity`；另有 `dis`、`disain` 等畸變類別 |
+| `25_125.jpg` | 4 | 0 | 4 | `dis`、`stcontinuity` 等畸變類別，故無有效框 |
+
+此短試訓比 v2 最終權重在第一張的格式較好，但兩輪步數不同，不能單獨歸因於 block size。尚未人工確認五個有效框的幾何位置是否與 GT 對上，也沒有正式 Precision／Recall。下一個短試訓應固定 block size 6、LoRA rank 8、100 steps 等條件，只把初始學習率由 `5e-5` 改成 `2e-5`，維持 linear 與 warmup 0，以觀察格式穩定性；不要同時變更其他參數。
