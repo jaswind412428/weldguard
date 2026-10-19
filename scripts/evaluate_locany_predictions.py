@@ -69,6 +69,7 @@ def main() -> None:
 
     rows: list[dict] = []
     expected_images: set[str] | None = None
+    expected_truth: dict[str, list[dict]] | None = None
     for source in args.inputs:
         if not source.is_file():
             parser.error(f"Missing input: {source}")
@@ -79,10 +80,14 @@ def main() -> None:
         if not records:
             parser.error(f"Empty input: {source}")
         image_set = set(images)
+        truth_by_image = {Path(record["image"]).name: record["ground_truth"] for record in records}
         if expected_images is None:
             expected_images = image_set
+            expected_truth = truth_by_image
         elif image_set != expected_images:
             parser.error(f"Image sets differ: {source} has {len(image_set)} images, expected {len(expected_images)}")
+        elif truth_by_image != expected_truth:
+            parser.error(f"Ground-truth boxes differ: {source}")
 
         model = str(records[0].get("model", source.parent.name))
         generation = records[0].get("generation")
