@@ -19,7 +19,7 @@
 | Batch | `per_device_train_batch_size=1`、`gradient_accumulation_steps=1`；有效 batch 約 1（單卡） |
 | Token 與資料載入 | `max_seq_length=2048`、`max_num_tokens_per_sample=2048`、`max_num_tokens=2048`、`packing_buffer_size=4`、`dataloader_num_workers=0` |
 | 儲存與日誌 | `save_strategy=steps`、`save_steps=100`、`save_total_limit=3`、`logging_steps=10`、`report_to=none`、`do_train=True` |
-| 學習率 | 指令未明確指定，使用訓練程式預設值；日誌後段從 `1.32e-5` 下降至 `2.30e-7`。需從 `training_args.bin` 或日誌確認初始值與 scheduler |
+| 學習率 | 指令未明確指定；使用者後續由 v2 日誌確認此版本預設 `learning_rate=5e-5`、`lr_scheduler_type=linear`、`warmup_steps=0`。v1 日誌後段從 `1.32e-5` 下降至 `2.30e-7`；v1 的完整訓練參數尚未獨立核對 |
 | 結果 | `train_runtime=530.4881 s`（約 8 分 50 秒）；`train_loss=1.0656933842902891`；後段每 10 steps loss 約 0.98–1.02 |
 | 權重 | 最終兩個 `model-*.safetensors`，約 4.7 GB + 2.6 GB；訓練時設每 100 steps 存 checkpoint |
 
@@ -51,4 +51,4 @@ v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接�
 
 以官方 worker 常用生成參數重跑兩張：原始預訓練模型在 `25_12.jpg` 輸出 1 個有效框、`25_125.jpg` 輸出 4 個有效框，均未被拒收；v2 模型兩張仍各有 0 個有效框、分別拒收 12 與 51 個，原始回答中有 `depositst`、`stst`、`disdis` 等非資料集類別及反覆／顛倒座標。原始模型有效格式不代表框的位置或類別已正確；但 v2 的格式退化並非只有貪婪解碼造成。
 
-後續核對官方程式時發現：v2 指令沒有明確指定 `--block_size`。NVIDIA Eagle 目前的 `ModelArguments` 預設為 4，而官方 LocateAnything LoRA 範例設為 6；兩個數值對 MTP 框 token 的學習可能有影響。**這只是候選原因，尚未核對使用者 checkout 的實際預設，也未做控制實驗。**此外官方 LoRA 範例使用 rank 64、明確指定學習率與 warmup；v2 使用 rank 8、學習率等沿用本機程式預設。下一步先從 v2 訓練日誌或 `training_args.bin` 核實實際參數，再改一次只變更一項的短試訓並以相同 validation 圖比較，不直接再跑 653 steps。
+後續核對官方程式時發現：v2 指令沒有明確指定 `--block_size`。使用者在其 checkout 確認預設為 **4**，`causal_attn=False`；訓練日誌確認 `learning_rate=5e-5`、`lr_scheduler_type=linear`、`warmup_steps=0`。NVIDIA 官方 LocateAnything LoRA 範例明確設 `block_size=6`、rank 64、學習率 `2e-5`、warmup 500（範例總步數 5000）。v2 為 rank 8、block size 4、較高初始學習率且無 warmup。這些是候選原因，**尚未證明哪一項造成退化**。v2 保留的中途 checkpoint 為 500、600、653。下一步先查是否有樣本因 2048 token 限額被跳過，再設計小規模對照試驗，不直接再跑 653 steps。
