@@ -19,7 +19,7 @@ from transformers import AutoModel, AutoProcessor, AutoTokenizer
 NAMES = {0: "pore", 1: "deposit", 2: "discontinuity", 3: "stain"}
 COLORS = {"pore": "#ff4040", "deposit": "#00b8d9", "discontinuity": "#f5a623", "stain": "#21b573"}
 PROMPT = (
-    "Locate all the instances that matches the following description: "
+    "<image-1> Locate all the instances that matches the following description: "
     "pore</c>deposit</c>discontinuity</c>stain."
 )
 OUTPUT_PATTERN = re.compile(
@@ -114,7 +114,7 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
 
 def predict(model, processor, tokenizer, image: Image.Image, args) -> str:
     messages = [{"role": "user", "content": [
-        {"type": "image", "image": image}, {"type": "text", "text": PROMPT}
+        {"type": "text", "text": PROMPT}, {"type": "image", "image": image}
     ]}]
     rendered = processor.py_apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     images, videos = processor.process_vision_info(messages)

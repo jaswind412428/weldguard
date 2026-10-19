@@ -65,3 +65,9 @@ v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接�
 | `25_125.jpg` | 4 | 0 | 4 | `dis`、`stcontinuity` 等畸變類別，故無有效框 |
 
 此短試訓比 v2 最終權重在第一張的格式較好，但兩輪步數不同，不能單獨歸因於 block size。尚未人工確認五個有效框的幾何位置是否與 GT 對上，也沒有正式 Precision／Recall。下一個短試訓應固定 block size 6、LoRA rank 8、100 steps 等條件，只把初始學習率由 `5e-5` 改成 `2e-5`，維持 linear 與 warmup 0，以觀察格式穩定性；不要同時變更其他參數。
+
+## 2026-10-20：block size 6、學習率 2e-5，100 steps 短試訓
+
+在上述短試訓基礎上只將學習率由 `5e-5` 降至 `2e-5`，其餘設定和 100 steps 不變。輸出：`/home/leo/weldguard/runs/vlm/locany_block6_lr2e5_probe100`。使用者回報 `train_runtime=100.34 s`、`train_loss=2.4146`。相同兩張 validation 圖：`25_12.jpg` 有 GT 7、有效預測 0、拒收 51；`25_125.jpg` 有 GT 4、有效預測 0、拒收 1。原始回答含 `disore`、反覆的 `discontin`，另一張只有 `dis` 並預測接近全圖的框。較低學習率沒有在此設定下修復類別輸出。
+
+隨後核對 NVIDIA `py_apply_chat_template`：訓練資料的使用者提示詞是 `<image-1> Locate...`（標記後有空格），舊預覽程式將 image 元素置於 text 前，產生 `<image-1>Locate...`（無空格）。這是可重現性上的輸入差異，**尚未證明是模型退化主因**。預覽程式已改成與訓練資料相同的文字及 content 順序；所有模型需用新預覽版本在相同兩張圖重新比較，舊預覽結果保留但不能作為最終模型間比較。
