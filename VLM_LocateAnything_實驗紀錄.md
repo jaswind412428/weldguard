@@ -48,3 +48,7 @@ v1 與 v2 的標註序列格式不同，因此兩者 train loss 不適合直接�
 ### v2 初次 validation 預覽（尚非正式評估）
 
 以 8 張 fold0 validation 影像試跑；初版預覽程式使用 hybrid、`temperature=0`、`top_p=1.0`、`repetition_penalty=1.0`、`max_new_tokens=512`。8 張全部解析出 0 個有效框，每張有 22–47 個格式上像框但被拒收的項目。使用者貼出的兩張原始回答顯示類別文字畸變（如 `depositstainuity`、`ststain`、`disstainuity`）、大量重複框及零面積框，因此不能把解析出的 0 框歸咎於單純的 regex 錯誤，也不能將這次預覽當作已完成的 Recall 指標。下一步以官方 worker 常用的 `temperature=0.7`、`top_p=0.9`、`repetition_penalty=1.1` 重跑相同兩張圖，保留原始輸出，判斷生成設定的影響。
+
+以官方 worker 常用生成參數重跑兩張：原始預訓練模型在 `25_12.jpg` 輸出 1 個有效框、`25_125.jpg` 輸出 4 個有效框，均未被拒收；v2 模型兩張仍各有 0 個有效框、分別拒收 12 與 51 個，原始回答中有 `depositst`、`stst`、`disdis` 等非資料集類別及反覆／顛倒座標。原始模型有效格式不代表框的位置或類別已正確；但 v2 的格式退化並非只有貪婪解碼造成。
+
+後續核對官方程式時發現：v2 指令沒有明確指定 `--block_size`。NVIDIA Eagle 目前的 `ModelArguments` 預設為 4，而官方 LocateAnything LoRA 範例設為 6；兩個數值對 MTP 框 token 的學習可能有影響。**這只是候選原因，尚未核對使用者 checkout 的實際預設，也未做控制實驗。**此外官方 LoRA 範例使用 rank 64、明確指定學習率與 warmup；v2 使用 rank 8、學習率等沿用本機程式預設。下一步先從 v2 訓練日誌或 `training_args.bin` 核實實際參數，再改一次只變更一項的短試訓並以相同 validation 圖比較，不直接再跑 653 steps。
