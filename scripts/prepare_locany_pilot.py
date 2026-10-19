@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import warnings
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -37,11 +38,23 @@ def read_boxes(label_path: Path) -> list[tuple[int, tuple[int, int, int, int]]]:
             raise ValueError(f"{label_path}:{line_number}: unknown class {class_id}")
         x1, y1 = cx - width / 2, cy - height / 2
         x2, y2 = cx + width / 2, cy + height / 2
-        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+        if not (x1 < x2 and y1 < y2):
             raise ValueError(f"{label_path}:{line_number}: invalid normalized box")
-        box = tuple(round(value * 1000) for value in (x1, y1, x2, y2))
+        clipped = (
+            max(0.0, min(1.0, x1)),
+            max(0.0, min(1.0, y1)),
+            max(0.0, min(1.0, x2)),
+            max(0.0, min(1.0, y2)),
+        )
+        if clipped[0] >= clipped[2] or clipped[1] >= clipped[3]:
+            warnings.warn(f"{label_path}:{line_number}: box outside image; skipped")
+            continue
+        if clipped != (x1, y1, x2, y2):
+            warnings.warn(f"{label_path}:{line_number}: box clipped to image boundary")
+        box = tuple(round(value * 1000) for value in clipped)
         if box[0] >= box[2] or box[1] >= box[3]:
-            raise ValueError(f"{label_path}:{line_number}: box collapses after rounding")
+            warnings.warn(f"{label_path}:{line_number}: box too small after rounding; skipped")
+            continue
         boxes.append((class_id, box))
     return boxes
 
