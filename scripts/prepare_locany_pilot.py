@@ -1,4 +1,4 @@
-"""Convert a few LoHi-WELD YOLO labels to LocateAnything training JSONL.
+"""Convert LoHi-WELD YOLO labels to LocateAnything training JSONL.
 
 Run on Linux from ~/weldguard after installing Pillow in the VLM environment.
 The source dataset is read only. Outputs default under datasets/, which Git ignores.
@@ -89,11 +89,12 @@ def main() -> None:
     )
     parser.add_argument("--split", default="fold0/train", help="Only use a training split")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--all", action="store_true", help="Convert every annotated train image")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path.home() / "weldguard/datasets/derived/locany_pilot",
+        default=None,
     )
     args = parser.parse_args()
     if args.limit < 1:
@@ -108,39 +109,50 @@ def main() -> None:
         parser.error(f"missing images or labels: {image_dir}, {label_dir}")
 
     candidates = []
+    images_without_boxes = []
     for image_path in sorted(image_dir.iterdir()):
         if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
             continue
         label_path = label_dir / f"{image_path.stem}.txt"
         if not label_path.is_file():
-            raise FileNotFoundError(f"Missing label for {image_path}: {label_path}")
-        boxes = read_boxes(label_path)
+            warnings.warn(f"{image_path}: no label file; excluded from training JSONL")
+            boxes = []
+        else:
+            boxes = read_boxes(label_path)
         if boxes:
             candidates.append((image_path, boxes))
-    if len(candidates) < args.limit:
+        else:
+            images_without_boxes.append(image_path)
+    if not args.all and len(candidates) < args.limit:
         raise ValueError(f"Only {len(candidates)} annotated train images; asked for {args.limit}")
 
-    rng = random.Random(args.seed)
-    shuffled = candidates[:]
-    rng.shuffle(shuffled)
-    selected = []
-    covered = set()
-    for image_path, boxes in shuffled:
-        new_classes = {class_id for class_id, _ in boxes} - covered
-        if new_classes and len(selected) < args.limit:
-            selected.append((image_path, boxes))
-            covered.update(class_id for class_id, _ in boxes)
-        if covered == set(NAMES):
-            break
-    for item in shuffled:
-        if len(selected) >= args.limit:
-            break
-        if item not in selected:
-            selected.append(item)
-    output = args.output.expanduser().resolve()
+    if args.all:
+        selected = candidates
+    else:
+        rng = random.Random(args.seed)
+        shuffled = candidates[:]
+        rng.shuffle(shuffled)
+        selected = []
+        covered = set()
+        for image_path, boxes in shuffled:
+            new_classes = {class_id for class_id, _ in boxes} - covered
+            if new_classes and len(selected) < args.limit:
+                selected.append((image_path, boxes))
+                covered.update(class_id for class_id, _ in boxes)
+            if covered == set(NAMES):
+                break
+        for item in shuffled:
+            if len(selected) >= args.limit:
+                break
+            if item not in selected:
+                selected.append(item)
+    default_output = Path.home() / "weldguard/datasets/derived" / (
+        "locany_full" if args.all else "locany_pilot"
+    )
+    output = (args.output or default_output).expanduser().resolve()
     preview_dir = output / "previews"
     output.mkdir(parents=True, exist_ok=True)
-    jsonl_path = output / "train_pilot.jsonl"
+    jsonl_path = output / ("train_full.jsonl" if args.all else "train_pilot.jsonl")
     manifest_path = output / "manifest.txt"
     count_by_class = {name: 0 for name in NAMES.values()}
 
@@ -165,6 +177,10 @@ def main() -> None:
             make_preview(image_path, boxes, preview_dir / image_path.name)
             for class_id, _ in boxes:
                 count_by_class[NAMES[class_id]] += 1
+        if args.all:
+            for image_path in images_without_boxes:
+                manifest.write(f"{image_path.name}: 0 boxes (excluded from training JSONL)\n")
+                make_preview(image_path, [], preview_dir / image_path.name)
 
     recipe = {
         "weldguard_pilot": {
@@ -174,10 +190,14 @@ def main() -> None:
             "data_augment": False,
         }
     }
-    (output / "pilot_recipe.json").write_text(
+    recipe_name = "full_recipe.json" if args.all else "pilot_recipe.json"
+    (output / recipe_name).write_text(
         json.dumps(recipe, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"Created {len(selected)} training records in {jsonl_path}")
+    if args.all:
+        print(f"Rendered {len(selected) + len(images_without_boxes)} train previews in {preview_dir}")
+        print(f"Images without usable boxes, excluded from JSONL: {len(images_without_boxes)}")
     print(f"Boxes by class: {count_by_class}")
     print(f"Review all previews in {preview_dir} before training")
 
