@@ -5,12 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source .venv-vlm/bin/activate
 
-output='runs/vlm/prompt_balanced_pilot_v4d'
+output='runs/vlm/prompt_balanced_pilot_v4d_size'
 mkdir -p "$output"
 
 python scripts/preview_locany_val.py \
   --model nvidia/LocateAnything-3B \
   --prompt-file prompts/locany_weld_balanced_v4d.txt \
+  --include-image-size \
   --split datasets/weld-dataset/kfold_high/fold0/val \
   --images 25_12.jpg 25_125.jpg 25_142.jpg 25_159.jpg \
            25_160.jpg 25_161.jpg 25_188.jpg 25_208.jpg \

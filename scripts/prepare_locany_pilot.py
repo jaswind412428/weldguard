@@ -96,6 +96,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--prompt-file", type=Path,
                         help="UTF-8 training question; omit to preserve the original V2/V3 prompt")
+    parser.add_argument("--include-image-size", action="store_true",
+                        help="Append each image's pixel width and height to its training question")
     parser.add_argument(
         "--output",
         type=Path,
@@ -174,6 +176,14 @@ def main() -> None:
         "w", encoding="utf-8"
     ) as manifest:
         for image_path, boxes in selected:
+            human_prompt = prompt
+            if args.include_image_size:
+                with Image.open(image_path) as source:
+                    image_width, image_height = source.size
+                human_prompt += (
+                    f" The image is {image_width} pixels wide and {image_height} pixels high."
+                    " Return boxes using the model's normalized 0 to 1000 coordinate scale."
+                )
             answer = "".join(
                 f"<ref>{NAMES[class_id]}</ref><box>"
                 + "".join(f"<{coordinate}>" for coordinate in box)
@@ -182,7 +192,7 @@ def main() -> None:
             )
             record = {
                 "conversations": [
-                    {"from": "human", "value": prompt},
+                    {"from": "human", "value": human_prompt},
                     {"from": "gpt", "value": answer},
                 ],
                 "image": image_path.relative_to(root).as_posix(),
@@ -208,6 +218,12 @@ def main() -> None:
     }
     recipe_name = "full_recipe.json" if args.all else "pilot_recipe.json"
     (output / "training_prompt.txt").write_text(prompt + "\n", encoding="utf-8")
+    if args.include_image_size:
+        (output / "training_prompt_size_note.txt").write_text(
+            "Each JSONL human prompt appends that image's actual pixel width and height, "
+            "then requests normalized 0 to 1000 output coordinates.\n",
+            encoding="utf-8",
+        )
     (output / recipe_name).write_text(
         json.dumps(recipe, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
