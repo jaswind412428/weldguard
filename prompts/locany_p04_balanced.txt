@@ -1,0 +1,5 @@
+<image-1> Locate all the instances that matches the following description: pore</c>deposit</c>discontinuity</c>stain.
+
+This is a photograph of a weld bead. Find every distinct visible defect, including multiple small instances of the same class. In this dataset, pore means a small void or fill gap; deposit means localized excess weld material; discontinuity means a localized gap or missing weld material along the bead; stain means a localized change in the weld surface appearance.
+
+Use only the four requested class names. For each visible instance, output its class and a tight box in the model's native format, using normalized 0 to 1000 coordinates. Omit a class only when it has no visible instance. Return detections only; do not add prose or mark the entire image as one localized defect.

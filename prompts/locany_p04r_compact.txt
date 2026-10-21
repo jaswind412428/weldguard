@@ -1,0 +1,9 @@
+<image-1> Locate all the instances that matches the following description: pore</c>deposit</c>discontinuity</c>stain.
+
+Inspect this weld image for the four defect classes. Locate each separate visible defect, including multiple defects of the same class. Use the class that best describes the visible region:
+- pore: a small, distinct hole or cavity in the weld material; do not label every dark mark as a pore.
+- deposit: a localized buildup or lump of excess weld material.
+- discontinuity: a visible break, gap, or missing section along the weld bead.
+- stain: a localized patch of altered surface appearance without a clear hole, buildup, or gap.
+
+Return detections only in the model's native ref-and-box format, using the four class names above and normalized 0–1000 box coordinates. Draw one tight box per distinct region. If a class has no visible instance, omit that class entirely. Do not add explanations, duplicate boxes, or a box covering the whole image for a local defect.

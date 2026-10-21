@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compare a short native-format prompt with saved original-model validation runs.
+# Compare P05 with saved original-model validation runs.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -13,7 +13,7 @@ for input in "$base" "$t1" "$v4" "$v5"; do
   [[ -f "$input" ]] || { echo "Missing baseline: $input" >&2; exit 1; }
 done
 
-output='runs/vlm/prompt_v6_native_size_original_100'
+output='runs/vlm/prompt_p05_gt_features_size_original_100'
 if [[ -e "$output/predictions.jsonl" ]]; then
   echo "Existing predictions would be overwritten: $output/predictions.jsonl" >&2
   exit 1
@@ -22,7 +22,7 @@ mkdir -p "$output"
 
 python scripts/preview_locany_val.py \
   --model nvidia/LocateAnything-3B \
-  --prompt-file prompts/locany_weld_native_v6.txt \
+  --prompt-file prompts/locany_p05_gt_features.txt \
   --include-image-size \
   --split datasets/weld-dataset/kfold_high/fold0/val \
   --limit 100 \
@@ -34,8 +34,8 @@ python scripts/preview_locany_val.py \
 python scripts/evaluate_locany_predictions.py \
   "$base" "$t1" "$v4" "$v5" "$output/predictions.jsonl" \
   --iou 0.5 --include-class-agnostic \
-  --output runs/vlm/prompt_v6_original_100_scores.csv \
-  2>&1 | tee runs/vlm/prompt_v6_original_100_scores.txt
+  --output runs/vlm/prompt_p05_original_100_scores.csv \
+  2>&1 | tee runs/vlm/prompt_p05_original_100_scores.txt
 
 python - "$output/predictions.jsonl" <<'PY'
 import json
