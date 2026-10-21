@@ -25,20 +25,22 @@
 | P03 | 650 | 0 | **0.032** | 0.297 | **0.210** | **0.246** | 尺寸資訊改善定位召回與 F1，但類別仍常錯。 |
 | P04 | 295 | 13 | 0.028 | 0.481 | 0.155 | 0.234 | 框較謹慎；deposit 只輸出 1 個有效框。 |
 | P04-R | 223 | 70 | 0.019 | **0.520** | 0.126 | 0.203 | 定位 precision 最高但漏框與格式問題增加；deposit 0 框。 |
-| P05 | 420 | 待補 | 0.019 | 0.419 | 0.192 | **0.263** | 定位 F1 最高，但分類未改善；deposit 30 個預測框，TP 0。 |
+| P05 | 420 | 3 | 0.019 | 0.419 | 0.192 | **0.263** | 定位 F1 最高，但分類未改善；deposit 30 個預測框，TP 0。 |
 
 **解讀：**目前沒有一版在所有指標上最佳。P03 的定位召回最高、分類＋定位 F1 最高；P04-R 的定位 precision 最高，卻漏掉更多 GT；P05 的定位 F1 最高，但分類＋定位 F1 降至 0.019。P04 是較謹慎的平衡描述提示詞。不能只因框數下降或單一 precision 上升就說模型變好。四類分類 F1 均很低，文字提示未證明能單獨解決類別辨識。
 
-P05 類別細項：pore TP 4／FP 212，deposit TP 0／FP 30，discontinuity TP 3／FP 97，stain TP 6／FP 68。總計分類＋定位 TP 13／FP 407／FN 906；忽略類別後定位 TP 176／FP 244／FN 743。這表示有一批框對上了缺陷位置，但類別錯誤。P05 的拒收數值框數尚未收到，不能先填 0。
+P05 類別細項：pore TP 4／FP 212，deposit TP 0／FP 30，discontinuity TP 3／FP 97，stain TP 6／FP 68。總計分類＋定位 TP 13／FP 407／FN 906；忽略類別後定位 TP 176／FP 244／FN 743。這表示有一批框對上了缺陷位置，但類別錯誤。100 張共有 3 個拒收數值框。
 
-上述 P05 分數由使用者貼出的五組評估輸出紀錄；原始 `predictions.jsonl` 尚未匯入本工作區，需核對該紀錄中的實際提示詞是否為 P05。舊腳本曾使用 `prompt_v6_native_size_original_100` 路徑；檔名本身不能證明提示詞內容。診斷打包程式會檢查紀錄中的 `prompt` 欄位與 P05 標準文字是否一致。
+P05 分數先由使用者貼出的五組評估輸出紀錄；後續已匯入 `results/locany_p05_original_prompt_diagnostics.zip`，打包程式核對 100 筆紀錄中的實際 `prompt` 均以 P05 標準文字開頭。舊腳本使用 `prompt_v6_native_size_original_100` 路徑；檔名只是歷史名稱。
+
+逐張診斷在不分類、IoU≥0.5 的最大匹配下發現：30 個 `deposit` 預測中，10 個與 `stain` GT 配對，20 個無 GT 配對；沒有與 `deposit` GT 配對。反過來，37 個 `deposit` GT 被標成 `pore`，16 個被標成 `discontinuity`，10 個被標成 `stain`。53 個 `stain` GT 被標成 `pore`。這些交叉類別數目可能隨多框重疊時的等價配對方式略有差異，但總定位 TP=176 不變。另有 36 個預測框面積至少為整圖的 80%（`discontinuity` 24、`deposit` 7、`pore` 3、`stain` 2）。P05 同時有類別混淆、大片框和漏框問題；光靠抑制預測數量不能解決。
 
 P02 只有 8 張初試：原始提示詞分類＋定位 F1=0；P02 F1=0.019。樣本與上表 100 張不同，**不能直接放進同一分數排名**。報告可把 P02 放在「早期嘗試與發現」欄，並標明樣本數。
 
 ## 報告與後續實驗
 
 1. 先用一張表展示 P01→P03→P04→P04-R 的提示詞變化和上表指標，再展示 GT／預測疊圖，解釋 P03 的召回、P04 的謹慎及 P04-R 的漏框／格式退化。
-2. P05 已完成同一批 100 張 validation 圖的框級評估。下一步核對原始回答與疊框圖，尤其是 deposit 的 30 個 FP：需分辨它們是落在其他類 GT 上，還是落在無標註處。P05 的 GT 視覺特徵是從部分圖片歸納的假設，詳見 `prompts/locany_weld_feature_notes.md`。
+2. P05 已完成同一批 100 張 validation 圖的框級評估及診斷。描述性的類別文字沒有改善分類，後續應先檢查資料集類別的視覺歧義、圖片範例或用相同提示詞進行小型微調，再決定是否試新的文字提示；不宜只靠更長的定義。P05 的 GT 視覺特徵是從部分圖片歸納的假設，詳見 `prompts/locany_weld_feature_notes.md`。
 3. 固定提示詞後才考慮新的完整訓練；訓練資料的人類問題與評估問題須對齊。若同一 100 張 validation 圖反覆選提示詞，結論仍屬探索性；保留其餘 validation 圖做最後確認，不用 test 挑提示詞。
 
-原始逐張紀錄仍在 4090 的 `runs/vlm/`；GitHub 診斷包為 `results/locany_v4d_original_prompt_diagnostics.zip` 與 `results/locany_v5_original_prompt_diagnostics.zip`。報告引用上述數值時，應保留影像數、IoU 與是否要求類別一致。
+原始逐張紀錄仍在 4090 的 `runs/vlm/`；GitHub 診斷包為 `results/locany_v4d_original_prompt_diagnostics.zip`、`results/locany_v5_original_prompt_diagnostics.zip` 與 `results/locany_p05_original_prompt_diagnostics.zip`。前兩個 ZIP 的檔名是歷史名稱，報告應用 P 系列代號。引用上述數值時，應保留影像數、IoU 與是否要求類別一致。
