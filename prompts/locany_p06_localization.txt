@@ -1,0 +1,3 @@
+<image-1> Locate all the instances that matches the following description: weld defect.
+
+Find each visible local defect in or along the weld bead: a cavity, a localized material buildup, an interruption of the bead, or an abnormal surface patch. Treat all of these as the single target weld defect. Locate the regions without deciding their defect types. Include small defects and defects along the bead edges. Use one tight box around each distinct defective region; include the full extent of an elongated region. Do not merge separate defects into one box or box the entire weld bead. Smooth regular weld ripples and a broad lighting gradient alone are not defects. Return only the model's native boxes with the shared label weld defect, using normalized 0 to 1000 coordinates.

@@ -67,6 +67,8 @@ def main() -> None:
     parser.add_argument("--include-class-agnostic", action="store_true",
                         help="Add one overall localization row that ignores defect class")
     parser.add_argument("--output", type=Path, help="Optional CSV summary path")
+    parser.add_argument("--localization-only", action="store_true",
+                        help="Report only the class-agnostic localization row")
     args = parser.parse_args()
     if not 0 < args.iou <= 1:
         parser.error("--iou must be in (0, 1]")
@@ -99,7 +101,8 @@ def main() -> None:
             if record.get("generation") != generation:
                 parser.error(f"Mixed generation settings in {source}")
         print(f"\n{model} ({len(records)} images, IoU >= {args.iou:g})")
-        categories = (*CLASSES, "all", "all_no_class") if args.include_class_agnostic else (*CLASSES, "all")
+        categories = (("all_no_class",) if args.localization_only else
+                      (*CLASSES, "all", "all_no_class") if args.include_class_agnostic else (*CLASSES, "all"))
         for category in categories:
             total = [0, 0, 0]
             for record in records:

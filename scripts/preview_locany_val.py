@@ -52,7 +52,7 @@ def ground_truth(label_path: Path) -> list[dict]:
     return result
 
 
-def parse_predictions(answer: str) -> tuple[list[dict], int]:
+def parse_predictions(answer: str, localization_only: bool = False) -> tuple[list[dict], int]:
     predictions = []
     rejected = 0
     current_class = None
@@ -62,7 +62,7 @@ def parse_predictions(answer: str) -> tuple[list[dict], int]:
             continue
         coordinates = list(map(int, match.groups()[1:]))
         if (
-            current_class not in COLORS
+            (not localization_only and current_class not in COLORS)
             or any(value > 1000 for value in coordinates)
             or coordinates[0] >= coordinates[2]
             or coordinates[1] >= coordinates[3]
@@ -70,7 +70,9 @@ def parse_predictions(answer: str) -> tuple[list[dict], int]:
             rejected += 1
             continue
         predictions.append(
-            {"class": current_class, "box_01": [value / 1000 for value in coordinates]}
+            {"class": "defect" if localization_only else current_class,
+             "box_01": [value / 1000 for value in coordinates],
+             **({"raw_class": current_class} if localization_only else {})}
         )
     return predictions, rejected
 
@@ -104,7 +106,7 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
     for item in boxes:
         x1, y1, x2, y2 = item["box_01"]
         box = (round(x1 * width), round(y1 * height), round(x2 * width), round(y2 * height))
-        color = COLORS[item["class"]]
+        color = COLORS.get(item["class"], "#ff4040")
         draw.rectangle(box, outline=color, width=stroke)
         draw.text((box[0], max(0, box[1] - 12)), item["class"], fill=color)
     draw.rectangle((0, 0, min(width, 290), 25), fill="black")
@@ -146,6 +148,8 @@ def main() -> None:
                         help="Query each of the four classes separately, then combine predictions")
     parser.add_argument("--include-image-size", action="store_true",
                         help="Include image pixel dimensions in each prompt")
+    parser.add_argument("--localization-only", action="store_true",
+                        help="Accept geometrically valid boxes regardless of generated class; retain raw class")
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -156,6 +160,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--images", nargs="*", help="Exact validation filenames to inspect")
     args = parser.parse_args()
+    if args.localization_only and args.one_class_at_a_time:
+        parser.error("localization-only cannot be combined with one-class-at-a-time")
     if args.one_class_at_a_time and args.prompt_file:
         parser.error("--one-class-at-a-time cannot be combined with --prompt-file")
     if args.prompt_file:
@@ -230,8 +236,10 @@ def main() -> None:
                         " Return boxes using the model's normalized 0 to 1000 coordinate scale."
                     )
                 answer = predict(model, processor, tokenizer, image, args, prompt_text)
-                predictions, rejected = parse_predictions(answer)
-            left = draw_panel(image, truth, f"Ground truth: {len(truth)}")
+                predictions, rejected = parse_predictions(answer, args.localization_only)
+            display_truth = ([{**box, "class": "defect"} for box in truth]
+                             if args.localization_only else truth)
+            left = draw_panel(image, display_truth, f"Ground truth: {len(truth)}")
             right = draw_panel(image, predictions, f"Prediction: {len(predictions)}")
             comparison = Image.new("RGB", (image.width * 2, image.height))
             comparison.paste(left, (0, 0))
@@ -240,7 +248,9 @@ def main() -> None:
             record = {
                 "image": str(image_path),
                 "model": args.model + (
-                    " (one class per query, with image size)" if args.one_class_at_a_time and args.include_image_size
+                    " (localization only, with image size)" if args.localization_only and args.include_image_size
+                    else " (localization only)" if args.localization_only
+                    else " (one class per query, with image size)" if args.one_class_at_a_time and args.include_image_size
                     else " (one class per query)" if args.one_class_at_a_time
                     else " (all classes, with image size)" if args.include_image_size
                     else ""
@@ -248,6 +258,7 @@ def main() -> None:
                 "prompt": prompts if args.one_class_at_a_time else prompt_text,
                 "answer": answers if args.one_class_at_a_time else answer,
                 "ground_truth": truth, "predictions": predictions,
+                "task": "localization" if args.localization_only else "class_detection",
                 "rejected_parsed_boxes": rejected,
                 "generation": {
                     "mode": args.generation_mode, "temperature": args.temperature,
