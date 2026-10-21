@@ -112,9 +112,9 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
     return panel
 
 
-def predict(model, processor, tokenizer, image: Image.Image, args) -> str:
+def predict(model, processor, tokenizer, image: Image.Image, args, prompt_text: str) -> str:
     messages = [{"role": "user", "content": [
-        {"type": "text", "text": args.prompt_text}, {"type": "image", "image": image}
+        {"type": "text", "text": prompt_text}, {"type": "image", "image": image}
     ]}]
     rendered = processor.py_apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     images, videos = processor.process_vision_info(messages)
@@ -142,6 +142,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prompt-file", type=Path,
                         help="UTF-8 text file used instead of the original prompt")
+    parser.add_argument("--one-class-at-a-time", action="store_true",
+                        help="Query each of the four classes separately, then combine predictions")
+    parser.add_argument("--include-image-size", action="store_true",
+                        help="Include image pixel dimensions in one-class prompts")
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -152,6 +156,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--images", nargs="*", help="Exact validation filenames to inspect")
     args = parser.parse_args()
+    if args.one_class_at_a_time and args.prompt_file:
+        parser.error("--one-class-at-a-time cannot be combined with --prompt-file")
+    if args.include_image_size and not args.one_class_at_a_time:
+        parser.error("--include-image-size requires --one-class-at-a-time")
     if args.prompt_file:
         try:
             args.prompt_text = args.prompt_file.read_text(encoding="utf-8").strip()
@@ -192,8 +200,33 @@ def main() -> None:
             with Image.open(image_path) as source:
                 image = source.convert("RGB")
             truth = ground_truth(args.split / "labels" / f"{image_path.stem}.txt")
-            answer = predict(model, processor, tokenizer, image, args)
-            predictions, rejected = parse_predictions(answer)
+            if args.one_class_at_a_time:
+                answers = {}
+                prompts = {}
+                predictions = []
+                rejected = 0
+                for category in NAMES.values():
+                    prompt_text = (
+                        "<image-1> Locate all the instances that matches the following "
+                        f"description: {category}."
+                    )
+                    if args.include_image_size:
+                        prompt_text += (
+                            f" The image is {image.width} pixels wide and {image.height} pixels high."
+                            " Return boxes using the model's normalized 0 to 1000 coordinate scale."
+                        )
+                    answer = predict(model, processor, tokenizer, image, args, prompt_text)
+                    parsed, invalid = parse_predictions(answer)
+                    # Keep only boxes explicitly named as the requested class.
+                    # Other classes generated in this call are counted as rejected.
+                    accepted = [item for item in parsed if item["class"] == category]
+                    rejected += invalid + len(parsed) - len(accepted)
+                    predictions.extend(accepted)
+                    answers[category] = answer
+                    prompts[category] = prompt_text
+            else:
+                answer = predict(model, processor, tokenizer, image, args, args.prompt_text)
+                predictions, rejected = parse_predictions(answer)
             left = draw_panel(image, truth, f"Ground truth: {len(truth)}")
             right = draw_panel(image, predictions, f"Prediction: {len(predictions)}")
             comparison = Image.new("RGB", (image.width * 2, image.height))
@@ -201,13 +234,20 @@ def main() -> None:
             comparison.paste(right, (image.width, 0))
             comparison.save(image_output / image_path.name, quality=95)
             record = {
-                "image": str(image_path), "model": args.model, "prompt": args.prompt_text,
-                "answer": answer, "ground_truth": truth, "predictions": predictions,
+                "image": str(image_path),
+                "model": args.model + (
+                    " (one class per query, with image size)" if args.include_image_size
+                    else " (one class per query)" if args.one_class_at_a_time else ""
+                ),
+                "prompt": prompts if args.one_class_at_a_time else args.prompt_text,
+                "answer": answers if args.one_class_at_a_time else answer,
+                "ground_truth": truth, "predictions": predictions,
                 "rejected_parsed_boxes": rejected,
                 "generation": {
                     "mode": args.generation_mode, "temperature": args.temperature,
                     "top_p": args.top_p, "repetition_penalty": args.repetition_penalty,
                     "max_new_tokens": args.max_new_tokens, "seed": args.seed,
+                    "queries_per_image": 4 if args.one_class_at_a_time else 1,
                 },
             }
             records.write(json.dumps(record, ensure_ascii=False) + "\n")
