@@ -25,12 +25,14 @@ def iou(a: list[float], b: list[float]) -> float:
     return intersection / union if union else 0.0
 
 
-def count_matches(truth: list[dict], predictions: list[dict], threshold: float) -> tuple[int, int, int]:
+def count_matches(truth: list[dict], predictions: list[dict], threshold: float,
+                  ignore_class: bool = False) -> tuple[int, int, int]:
     # Maximum cardinality bipartite matching, so overlapping predictions cannot
     # claim the same ground-truth box twice.
     edges = [
         [j for j, gt in enumerate(truth)
-         if pred["class"] == gt["class"] and iou(pred["box_01"], gt["box_01"]) >= threshold]
+         if (ignore_class or pred["class"] == gt["class"])
+         and iou(pred["box_01"], gt["box_01"]) >= threshold]
         for pred in predictions
     ]
     claimed_by: dict[int, int] = {}
@@ -62,6 +64,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="+", type=Path, help="One predictions.jsonl per model")
     parser.add_argument("--iou", type=float, default=0.5)
+    parser.add_argument("--include-class-agnostic", action="store_true",
+                        help="Add one overall localization row that ignores defect class")
     parser.add_argument("--output", type=Path, help="Optional CSV summary path")
     args = parser.parse_args()
     if not 0 < args.iou <= 1:
@@ -95,12 +99,14 @@ def main() -> None:
             if record.get("generation") != generation:
                 parser.error(f"Mixed generation settings in {source}")
         print(f"\n{model} ({len(records)} images, IoU >= {args.iou:g})")
-        for category in (*CLASSES, "all"):
+        categories = (*CLASSES, "all", "all_no_class") if args.include_class_agnostic else (*CLASSES, "all")
+        for category in categories:
             total = [0, 0, 0]
             for record in records:
-                gt = [box for box in record["ground_truth"] if category == "all" or box["class"] == category]
-                pred = [box for box in record["predictions"] if category == "all" or box["class"] == category]
-                counts = count_matches(gt, pred, args.iou)
+                overall = category in {"all", "all_no_class"}
+                gt = [box for box in record["ground_truth"] if overall or box["class"] == category]
+                pred = [box for box in record["predictions"] if overall or box["class"] == category]
+                counts = count_matches(gt, pred, args.iou, ignore_class=category == "all_no_class")
                 total = [a + b for a, b in zip(total, counts)]
             row = {"model": model, "source": str(source), "images": len(records), "class": category,
                    "iou": args.iou, **scores(*total)}
