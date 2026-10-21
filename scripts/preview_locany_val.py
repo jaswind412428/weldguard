@@ -145,7 +145,7 @@ def main() -> None:
     parser.add_argument("--one-class-at-a-time", action="store_true",
                         help="Query each of the four classes separately, then combine predictions")
     parser.add_argument("--include-image-size", action="store_true",
-                        help="Include image pixel dimensions in one-class prompts")
+                        help="Include image pixel dimensions in each prompt")
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -158,8 +158,6 @@ def main() -> None:
     args = parser.parse_args()
     if args.one_class_at_a_time and args.prompt_file:
         parser.error("--one-class-at-a-time cannot be combined with --prompt-file")
-    if args.include_image_size and not args.one_class_at_a_time:
-        parser.error("--include-image-size requires --one-class-at-a-time")
     if args.prompt_file:
         try:
             args.prompt_text = args.prompt_file.read_text(encoding="utf-8").strip()
@@ -225,7 +223,13 @@ def main() -> None:
                     answers[category] = answer
                     prompts[category] = prompt_text
             else:
-                answer = predict(model, processor, tokenizer, image, args, args.prompt_text)
+                prompt_text = args.prompt_text
+                if args.include_image_size:
+                    prompt_text += (
+                        f" The image is {image.width} pixels wide and {image.height} pixels high."
+                        " Return boxes using the model's normalized 0 to 1000 coordinate scale."
+                    )
+                answer = predict(model, processor, tokenizer, image, args, prompt_text)
                 predictions, rejected = parse_predictions(answer)
             left = draw_panel(image, truth, f"Ground truth: {len(truth)}")
             right = draw_panel(image, predictions, f"Prediction: {len(predictions)}")
@@ -236,10 +240,12 @@ def main() -> None:
             record = {
                 "image": str(image_path),
                 "model": args.model + (
-                    " (one class per query, with image size)" if args.include_image_size
-                    else " (one class per query)" if args.one_class_at_a_time else ""
+                    " (one class per query, with image size)" if args.one_class_at_a_time and args.include_image_size
+                    else " (one class per query)" if args.one_class_at_a_time
+                    else " (all classes, with image size)" if args.include_image_size
+                    else ""
                 ),
-                "prompt": prompts if args.one_class_at_a_time else args.prompt_text,
+                "prompt": prompts if args.one_class_at_a_time else prompt_text,
                 "answer": answers if args.one_class_at_a_time else answer,
                 "ground_truth": truth, "predictions": predictions,
                 "rejected_parsed_boxes": rejected,
