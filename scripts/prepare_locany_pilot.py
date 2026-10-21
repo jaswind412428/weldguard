@@ -94,12 +94,23 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--all", action="store_true", help="Convert every annotated train image")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--prompt-file", type=Path,
+                        help="UTF-8 training question; omit to preserve the original V2/V3 prompt")
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
     )
     args = parser.parse_args()
+    if args.prompt_file:
+        try:
+            prompt = args.prompt_file.read_text(encoding="utf-8").strip()
+        except OSError as error:
+            parser.error(f"Cannot read prompt file: {error}")
+        if not prompt or "<image-1>" not in prompt:
+            parser.error("Prompt file must contain a nonempty <image-1> question")
+    else:
+        prompt = PROMPT
     if args.limit < 1:
         parser.error("--limit must be positive")
     if args.split != "fold0/train":
@@ -171,7 +182,7 @@ def main() -> None:
             )
             record = {
                 "conversations": [
-                    {"from": "human", "value": PROMPT},
+                    {"from": "human", "value": prompt},
                     {"from": "gpt", "value": answer},
                 ],
                 "image": image_path.relative_to(root).as_posix(),
@@ -196,6 +207,7 @@ def main() -> None:
         }
     }
     recipe_name = "full_recipe.json" if args.all else "pilot_recipe.json"
+    (output / "training_prompt.txt").write_text(prompt + "\n", encoding="utf-8")
     (output / recipe_name).write_text(
         json.dumps(recipe, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
