@@ -1,0 +1,15 @@
+<image-1> Locate all the instances that matches the following description: pore</c>deposit</c>discontinuity</c>stain.
+
+Inspect this photograph of a weld bead and locate only visible instances of these four LoHi-WELD defect classes:
+
+- pore: a small void or fill gap caused by a gas bubble in the molten weld material; it can occur alone or in a group.
+- deposit: localized excess welding material along the weld bead.
+- discontinuity: localized partial absence of weld material along the bead, leaving less than the expected weld thickness.
+- stain: a localized change in the weld surface appearance; ordinary lighting changes and shadows are not sufficient evidence.
+
+For each distinct visible defect, give its class and one tight, axis-aligned bounding box. Each box uses four integer coordinate tokens in top-left x, top-left y, bottom-right x, bottom-right y order. Use the model's normalized 0 to 1000 image coordinate grid, not raw pixel coordinates. All coordinates must be inside the image, with left less than right and top less than bottom.
+
+Use the model's native ref and box tags for every detection. The ref tag must contain exactly one of the four class names above, and the box tag must contain the four actual numeric coordinates. Output detections only, without prose, JSON, counts, or confidence values. Omit any class or region that is absent or visually unsupported. Do not guess, duplicate a defect, or replace a localized defect with a whole-image box.
+
+The following line is only an example of the required output format, not a detection in the image you must inspect. Do not copy its class or coordinates unless independently supported by the image:
+<ref>pore</ref><box><100><200><150><250></box>
