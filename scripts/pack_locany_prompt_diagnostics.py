@@ -15,6 +15,7 @@ SOURCES = {
     "t1_size": Path("runs/vlm/prompt_four_100_t1_size"),
     "v4d_size": Path("runs/vlm/prompt_four_100_balanced_v4d_size"),
     "v5_compact_size": Path("runs/vlm/prompt_v5_compact_size_original_100"),
+    "p05_gt_features_size": Path("runs/vlm/prompt_p05_gt_features_size_original_100"),
 }
 
 
@@ -66,8 +67,8 @@ def pick_examples(records: dict[str, dict], count: int) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
-                        default=Path("results/locany_v5_original_prompt_diagnostics.zip"))
-    parser.add_argument("--focus", choices=tuple(SOURCES), default="v5_compact_size")
+                        default=Path("results/locany_p05_original_prompt_diagnostics.zip"))
+    parser.add_argument("--focus", choices=tuple(SOURCES), default="p05_gt_features_size")
     parser.add_argument("--examples", type=int, default=12)
     args = parser.parse_args()
     if args.examples < 1:
