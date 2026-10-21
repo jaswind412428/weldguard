@@ -48,7 +48,7 @@ train_one() {
     --learning_rate 5e-5 \
     --lr_scheduler_type linear \
     --warmup_steps 0 \
-    --weight_decay 0.01 \
+    --weight_decay 0.0 \
     --save_strategy steps \
     --save_steps 50 \
     --save_total_limit 2 \
