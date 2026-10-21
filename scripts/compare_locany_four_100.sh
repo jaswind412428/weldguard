@@ -16,9 +16,9 @@ prefix='runs/vlm/prompt_four_100'
 base="${prefix}_original"
 v3="${prefix}_v3"
 t1="${prefix}_t1_size"
-detailed="${prefix}_base_detailed_v4b"
+balanced="${prefix}_balanced_v4d_size"
 
-for output in "$base" "$v3" "$t1" "$detailed"; do
+for output in "$base" "$v3" "$t1" "$balanced"; do
   mkdir -p "$output"
 done
 
@@ -37,25 +37,26 @@ python scripts/preview_locany_val.py \
 
 python scripts/preview_locany_val.py \
   "${settings[@]}" --model nvidia/LocateAnything-3B \
-  --prompt-file prompts/locany_weld_training_v4b.txt --output "$detailed" \
-  2>&1 | tee "$detailed/run.log"
+  --prompt-file prompts/locany_weld_balanced_v4d.txt \
+  --include-image-size --output "$balanced" \
+  2>&1 | tee "$balanced/run.log"
 
 python scripts/evaluate_locany_predictions.py \
   "$base/predictions.jsonl" \
   "$v3/predictions.jsonl" \
   "$t1/predictions.jsonl" \
-  "$detailed/predictions.jsonl" \
+  "$balanced/predictions.jsonl" \
   --iou 0.5 --output "${prefix}_scores.csv" \
   2>&1 | tee "${prefix}_scores.txt"
 
-python - "$detailed/predictions.jsonl" <<'PY' | tee "${prefix}_detailed_diagnostics.txt"
+python - "$balanced/predictions.jsonl" <<'PY' | tee "${prefix}_balanced_diagnostics.txt"
 import json
 import sys
 from collections import Counter
 from pathlib import Path
 
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines() if line]
-print('Detailed prompt diagnostics')
+print('Balanced prompt with image size diagnostics')
 print('images:', len(rows))
 print('images with accepted boxes:', sum(bool(row['predictions']) for row in rows))
 print('rejected numeric boxes:', sum(row['rejected_parsed_boxes'] for row in rows))
