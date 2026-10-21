@@ -17,12 +17,23 @@ SOURCES = {
     "v5_compact_size": Path("runs/vlm/prompt_v5_compact_size_original_100"),
     "p05_gt_features_size": Path("runs/vlm/prompt_p05_gt_features_size_original_100"),
 }
+P05_OLD_PATH = Path("runs/vlm/prompt_v6_native_size_original_100")
+
+
+def resolve_sources() -> dict[str, Path]:
+    sources = SOURCES.copy()
+    current = sources["p05_gt_features_size"] / "predictions.jsonl"
+    old = P05_OLD_PATH / "predictions.jsonl"
+    if not current.is_file() and old.is_file():
+        sources["p05_gt_features_size"] = P05_OLD_PATH
+        print(f"Using historical P05 output path: {old}")
+    return sources
 
 
 def read_records(directory: Path) -> dict[str, dict]:
     path = directory / "predictions.jsonl"
     if not path.is_file():
-        raise FileNotFoundError(f"Missing {path}; run scripts/compare_locany_four_100.sh first")
+        raise FileNotFoundError(f"Missing {path}; locate the existing predictions.jsonl before rerunning inference")
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
     by_name = {Path(row["image"]).name: row for row in records}
     if len(by_name) != len(records):
@@ -74,10 +85,18 @@ def main() -> None:
     if args.examples < 1:
         parser.error("--examples must be positive")
 
-    records = {label: read_records(path) for label, path in SOURCES.items()}
+    sources = resolve_sources()
+    records = {label: read_records(path) for label, path in sources.items()}
+    p05_prompt = Path("prompts/locany_p05_gt_features.txt").read_text(encoding="utf-8").strip()
+    for row in records["p05_gt_features_size"].values():
+        if not row.get("prompt", "").startswith(p05_prompt):
+            raise ValueError(
+                "Saved P05 predictions use a different prompt than prompts/locany_p05_gt_features.txt; "
+                "do not label these results P05"
+            )
     image_sets = [set(group) for group in records.values()]
     if any(image_set != image_sets[0] for image_set in image_sets[1:]):
-        parser.error("The three prediction files have different image sets")
+        parser.error("The prediction files have different image sets")
     for name in image_sets[0]:
         truths = [group[name]["ground_truth"] for group in records.values()]
         if any(truth != truths[0] for truth in truths[1:]):
@@ -86,7 +105,7 @@ def main() -> None:
     examples = pick_examples(records[args.focus], min(args.examples, len(image_sets[0])))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(args.output, "w", ZIP_DEFLATED) as archive:
-        for label, directory in SOURCES.items():
+        for label, directory in sources.items():
             archive.write(directory / "predictions.jsonl", f"{label}/predictions.jsonl")
             for case in examples:
                 source = directory / "compare" / case["image"]
