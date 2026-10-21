@@ -14,6 +14,7 @@ SOURCES = {
     "original": Path("runs/vlm/prompt_four_100_original"),
     "t1_size": Path("runs/vlm/prompt_four_100_t1_size"),
     "v4d_size": Path("runs/vlm/prompt_four_100_balanced_v4d_size"),
+    "v5_compact_size": Path("runs/vlm/prompt_v5_compact_size_original_100"),
 }
 
 
@@ -65,7 +66,8 @@ def pick_examples(records: dict[str, dict], count: int) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
-                        default=Path("results/locany_v4d_original_prompt_diagnostics.zip"))
+                        default=Path("results/locany_v5_original_prompt_diagnostics.zip"))
+    parser.add_argument("--focus", choices=tuple(SOURCES), default="v5_compact_size")
     parser.add_argument("--examples", type=int, default=12)
     args = parser.parse_args()
     if args.examples < 1:
@@ -80,7 +82,7 @@ def main() -> None:
         if any(truth != truths[0] for truth in truths[1:]):
             parser.error(f"Ground truth differs for {name}")
 
-    examples = pick_examples(records["v4d_size"], min(args.examples, len(image_sets[0])))
+    examples = pick_examples(records[args.focus], min(args.examples, len(image_sets[0])))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(args.output, "w", ZIP_DEFLATED) as archive:
         for label, directory in SOURCES.items():
