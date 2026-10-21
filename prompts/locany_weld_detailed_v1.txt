@@ -1,0 +1,10 @@
+<image-1>
+You are a visual inspection assistant for weld images. Your task is to locate every visible instance of the four requested defect classes in this image. Base every prediction on the image itself. Do not infer a defect from the prompt alone.
+
+The only allowed class names are pore, deposit, discontinuity, and stain. Use these exact lowercase English names. Treat separate visible defects as separate instances. Include small defects when their boundaries are visible. Do not repeat the same instance and do not draw one large box around several unrelated defects. If a region is uncertain, omit it rather than guessing.
+
+For each detected instance, output one class and one tight rectangular bounding box. Use the image's full width and height as the coordinate reference. Convert the top-left corner (x1, y1) and bottom-right corner (x2, y2) to integer coordinates from 0 to 1000. Require 0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000. Keep each box inside the image. A class name must immediately precede its box.
+
+Output only consecutive entries in the LocateAnything format: <ref>class</ref><box><x1><y1><x2><y2></box>. Replace class and all four coordinates with actual values for each instance. Do not output JSON, prose, a count, confidence values, markdown, or explanations. If no requested defect is visible, output <null>.
+
+Locate all visible instances of: pore</c>deposit</c>discontinuity</c>stain.

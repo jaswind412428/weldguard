@@ -114,7 +114,7 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
 
 def predict(model, processor, tokenizer, image: Image.Image, args) -> str:
     messages = [{"role": "user", "content": [
-        {"type": "text", "text": PROMPT}, {"type": "image", "image": image}
+        {"type": "text", "text": args.prompt_text}, {"type": "image", "image": image}
     ]}]
     rendered = processor.py_apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     images, videos = processor.process_vision_info(messages)
@@ -140,6 +140,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, help="Hugging Face ID or trained model directory")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--prompt-file", type=Path,
+                        help="UTF-8 text file used instead of the original prompt")
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -150,6 +152,17 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--images", nargs="*", help="Exact validation filenames to inspect")
     args = parser.parse_args()
+    if args.prompt_file:
+        try:
+            args.prompt_text = args.prompt_file.read_text(encoding="utf-8").strip()
+        except OSError as error:
+            parser.error(f"Cannot read prompt file: {error}")
+        if not args.prompt_text:
+            parser.error("Prompt file is empty")
+        if "<image-1>" not in args.prompt_text:
+            parser.error("Prompt file must contain <image-1>")
+    else:
+        args.prompt_text = PROMPT
     if args.limit < 1 or args.max_new_tokens < 1:
         parser.error("--limit and --max-new-tokens must be positive")
     if args.temperature < 0 or not 0 < args.top_p <= 1 or args.repetition_penalty <= 0:
@@ -188,7 +201,7 @@ def main() -> None:
             comparison.paste(right, (image.width, 0))
             comparison.save(image_output / image_path.name, quality=95)
             record = {
-                "image": str(image_path), "model": args.model, "prompt": PROMPT,
+                "image": str(image_path), "model": args.model, "prompt": args.prompt_text,
                 "answer": answer, "ground_truth": truth, "predictions": predictions,
                 "rejected_parsed_boxes": rejected,
                 "generation": {
