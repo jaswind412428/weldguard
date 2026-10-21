@@ -1,5 +1,15 @@
 # LocateAnything 訓練實驗紀錄
 
+## V4：P05，與 V2 相同 653 steps（準備完成，尚未訓練）
+
+正式 V4 輸出為 `runs/vlm/locany_v4_p05_epoch1`，舊 `locany_50step_v4` 僅是歷史短試訓。從 `nvidia/LocateAnything-3B` 開始；直接複製 V2 recipe 的 653 筆影像順序與 GPT 答案，只替換 human 訊息為 P05 加每張圖尺寸。四類標註保留，主要評估不分類定位。
+
+已由 V2 `training_args.bin` 匯出核對（`results/v2_training_metadata.json`）：batch1、累積1、LR5e-5、linear、warmup0、weight_decay0、max_grad_norm1、AdamW fused、betas0.9/0.999、epsilon1e-8、bf16、seed42、workers0、save_steps100、save_total_limit3、logging_steps10、ZeRO2。V2 儲存的 `num_train_epochs=3` 被 `max_steps=653` 覆蓋，實際 global_step653、epoch1；V4 明寫 num_train_epochs1，仍由相同 max_steps653 控制。streaming 的 epoch1 不保證每張圖只經過一次。
+
+LoRA rank8、block_size4、causal_attn false、凍結語言／視覺主幹與訓練連接層、sdpa、2048 token 限額、packing_buffer4 等自訂參數沿用歷史紀錄；匯出的 V2 日誌只獨立找回兩項 token 限額，不能聲稱所有自訂項目都由權重重新驗證。環境與 Eagle 程式需沿用 4090 現有可執行版本。
+
+執行 `bash scripts/train_locany_v4_p05.sh`；完成後執行 `bash scripts/evaluate_locany_v2_v4.sh`。評估同 100 張 validation、同生成與定位解析規則，三組為 V2+P01（歷史工作方式參考）、V2+P05、V4+P05。後兩組固定推論提示詞以比較權重；前者與 V4+P05 同時改變訓練及推論提示詞，不能歸因於單一因素。新輸出目錄已有資料時腳本停止，避免覆蓋歷史實驗。
+
 ## 2026-10-19：fold0 train 653 張，v1
 
 **狀態：訓練完成；定位品質尚未評估。此輪標註框格式與官方規格不符，不能當作正式微調成果。**
