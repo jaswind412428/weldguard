@@ -16,7 +16,7 @@ prefix='runs/vlm/prompt_four_100'
 base="${prefix}_original"
 v3="${prefix}_v3"
 t1="${prefix}_t1_size"
-detailed="${prefix}_base_detailed"
+detailed="${prefix}_base_detailed_v4b"
 
 for output in "$base" "$v3" "$t1" "$detailed"; do
   mkdir -p "$output"
@@ -37,7 +37,7 @@ python scripts/preview_locany_val.py \
 
 python scripts/preview_locany_val.py \
   "${settings[@]}" --model nvidia/LocateAnything-3B \
-  --prompt-file prompts/locany_weld_training_v4.txt --output "$detailed" \
+  --prompt-file prompts/locany_weld_training_v4b.txt --output "$detailed" \
   2>&1 | tee "$detailed/run.log"
 
 python scripts/evaluate_locany_predictions.py \
