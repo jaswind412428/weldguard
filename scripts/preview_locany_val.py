@@ -148,6 +148,8 @@ def main() -> None:
                         help="Query each of the four classes separately, then combine predictions")
     parser.add_argument("--include-image-size", action="store_true",
                         help="Include image pixel dimensions in each prompt")
+    parser.add_argument("--image-size-only", action="store_true",
+                        help="Include pixel dimensions without mentioning normalized coordinates")
     parser.add_argument("--localization-only", action="store_true",
                         help="Accept geometrically valid boxes regardless of generated class; retain raw class")
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
@@ -160,6 +162,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--images", nargs="*", help="Exact validation filenames to inspect")
     args = parser.parse_args()
+    if args.include_image_size and args.image_size_only:
+        parser.error("--include-image-size and --image-size-only are mutually exclusive")
     if args.localization_only and args.one_class_at_a_time:
         parser.error("localization-only cannot be combined with one-class-at-a-time")
     if args.one_class_at_a_time and args.prompt_file:
@@ -219,6 +223,8 @@ def main() -> None:
                             f" The image is {image.width} pixels wide and {image.height} pixels high."
                             " Return boxes using the model's normalized 0 to 1000 coordinate scale."
                         )
+                    elif args.image_size_only:
+                        prompt_text += f" The image is {image.width} pixels wide and {image.height} pixels high."
                     answer = predict(model, processor, tokenizer, image, args, prompt_text)
                     parsed, invalid = parse_predictions(answer)
                     # Keep only boxes explicitly named as the requested class.
@@ -235,6 +241,8 @@ def main() -> None:
                         f" The image is {image.width} pixels wide and {image.height} pixels high."
                         " Return boxes using the model's normalized 0 to 1000 coordinate scale."
                     )
+                elif args.image_size_only:
+                    prompt_text += f" The image is {image.width} pixels wide and {image.height} pixels high."
                 answer = predict(model, processor, tokenizer, image, args, prompt_text)
                 predictions, rejected = parse_predictions(answer, args.localization_only)
             display_truth = ([{**box, "class": "defect"} for box in truth]
@@ -248,10 +256,13 @@ def main() -> None:
             record = {
                 "image": str(image_path),
                 "model": args.model + (
-                    " (localization only, with image size)" if args.localization_only and args.include_image_size
+                    " (localization only, with image size only)" if args.localization_only and args.image_size_only
+                    else " (localization only, with image size)" if args.localization_only and args.include_image_size
                     else " (localization only)" if args.localization_only
+                    else " (one class per query, with image size only)" if args.one_class_at_a_time and args.image_size_only
                     else " (one class per query, with image size)" if args.one_class_at_a_time and args.include_image_size
                     else " (one class per query)" if args.one_class_at_a_time
+                    else " (all classes, with image size only)" if args.image_size_only
                     else " (all classes, with image size)" if args.include_image_size
                     else ""
                 ),

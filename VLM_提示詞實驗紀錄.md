@@ -62,3 +62,8 @@ P03/P05 的原始回答也用相同規則重新解析，因此基準與先前「
 3. 固定提示詞後才考慮新的完整訓練；訓練資料的人類問題與評估問題須對齊。若同一 100 張 validation 圖反覆選提示詞，結論仍屬探索性；保留其餘 validation 圖做最後確認，不用 test 挑提示詞。
 
 原始逐張紀錄仍在 4090 的 `runs/vlm/`；GitHub 診斷包為 `results/locany_v4d_original_prompt_diagnostics.zip`、`results/locany_v5_original_prompt_diagnostics.zip` 與 `results/locany_p05_original_prompt_diagnostics.zip`。前兩個 ZIP 的檔名是歷史名稱，報告應用 P 系列代號。引用上述數值時，應保留影像數、IoU 與是否要求類別一致。
+### V3 尺寸資訊消融：不提示標準化座標（待測）
+
+保留 V3 原本的四類定位提示詞於 `prompts/locany_v3_original_prompt.txt`，其內容等同 `scripts/preview_locany_val.py` 的 `PROMPT`。這次只在每張圖片後附加實際像素寬與高，不要求模型將座標標準化，也不改動模型或生成參數。執行 `bash scripts/compare_locany_v3_size_only_100.sh`，與已保存的 V3 原提示詞 100 張驗證結果比較。
+
+解析器仍依 LocateAnything 原生的 0–1000 `<box>` token 格式解讀輸出；不要求標準化是提示詞變更，不代表將模型架構或標註轉成像素座標。如果模型改輸出像素座標，須先檢查原始回答與 `rejected_parsed_boxes`，不能將解析失敗直接解讀為偵測能力變差。這輪只用 fold0 validation，不使用 test 選提示詞。
