@@ -15,6 +15,8 @@ import torch
 from PIL import Image, ImageDraw
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
+from locany_image_example import build_prompt, load_references
+
 
 NAMES = {0: "pore", 1: "deposit", 2: "discontinuity", 3: "stain"}
 COLORS = {"pore": "#ff4040", "deposit": "#00b8d9", "discontinuity": "#f5a623", "stain": "#21b573"}
@@ -114,13 +116,20 @@ def draw_panel(image: Image.Image, boxes: list[dict], title: str) -> Image.Image
     return panel
 
 
-def predict(model, processor, tokenizer, image: Image.Image, args, prompt_text: str) -> str:
-    messages = [{"role": "user", "content": [
-        {"type": "text", "text": prompt_text}, {"type": "image", "image": image}
-    ]}]
+def predict(model, processor, tokenizer, image: Image.Image, args, prompt_text: str,
+            example_image: Image.Image | None = None) -> str:
+    content = [{"type": "text", "text": prompt_text}, {"type": "image", "image": image}]
+    if example_image is not None:
+        content.append({"type": "image", "image": example_image})
+    messages = [{"role": "user", "content": content}]
     rendered = processor.py_apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     images, videos = processor.process_vision_info(messages)
     inputs = processor(text=[rendered], images=images, videos=videos, return_tensors="pt").to("cuda")
+    if args.max_input_tokens and inputs["input_ids"].shape[-1] > args.max_input_tokens:
+        raise ValueError(
+            f"Input has {inputs['input_ids'].shape[-1]} tokens, above "
+            f"--max-input-tokens={args.max_input_tokens}"
+        )
     response = model.generate(
         pixel_values=inputs["pixel_values"].to(torch.bfloat16),
         input_ids=inputs["input_ids"],
@@ -144,6 +153,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prompt-file", type=Path,
                         help="UTF-8 text file used instead of the original prompt")
+    parser.add_argument("--few-shot-manifest", type=Path,
+                        help="V5-image manifest with a labeled example exclusively from train")
     parser.add_argument("--one-class-at-a-time", action="store_true",
                         help="Query each of the four classes separately, then combine predictions")
     parser.add_argument("--include-image-size", action="store_true",
@@ -155,6 +166,8 @@ def main() -> None:
     parser.add_argument("--split", type=Path, default=Path.home() / "weldguard/datasets/weld-dataset/kfold_high/fold0/val")
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--max-input-tokens", type=int, default=0,
+                        help="Optional limit for input token count; 0 disables the check")
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--repetition-penalty", type=float, default=1.1)
@@ -168,6 +181,9 @@ def main() -> None:
         parser.error("localization-only cannot be combined with one-class-at-a-time")
     if args.one_class_at_a_time and args.prompt_file:
         parser.error("--one-class-at-a-time cannot be combined with --prompt-file")
+    if args.few_shot_manifest and (args.one_class_at_a_time or args.localization_only
+                                   or not args.prompt_file or not args.include_image_size):
+        parser.error("--few-shot-manifest requires --prompt-file and --include-image-size")
     if args.prompt_file:
         try:
             args.prompt_text = args.prompt_file.read_text(encoding="utf-8").strip()
@@ -179,7 +195,7 @@ def main() -> None:
             parser.error("Prompt file must contain <image-1>")
     else:
         args.prompt_text = PROMPT
-    if args.limit < 1 or args.max_new_tokens < 1:
+    if args.limit < 1 or args.max_new_tokens < 1 or args.max_input_tokens < 0:
         parser.error("--limit and --max-new-tokens must be positive")
     if args.temperature < 0 or not 0 < args.top_p <= 1 or args.repetition_penalty <= 0:
         parser.error("Invalid generation parameters")
@@ -193,6 +209,11 @@ def main() -> None:
     else:
         selected = choose_images(args.split / "images", args.split / "labels", args.limit)
     output = args.output.expanduser()
+    references = load_references(args.few_shot_manifest) if args.few_shot_manifest else None
+    example = None
+    if references:
+        with Image.open(references[0]["image"]) as opened:
+            example = opened.convert("RGB")
     image_output = output / "compare"
     image_output.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
@@ -236,14 +257,21 @@ def main() -> None:
                     prompts[category] = prompt_text
             else:
                 prompt_text = args.prompt_text
-                if args.include_image_size:
+                if references:
+                    prompt_text = build_prompt(
+                        prompt_text, image.width, image.height, references[0]["answer"]
+                    )
+                    if prompt_text.count("<image-1>") != 1 or prompt_text.count("<image-2>") != 1:
+                        raise ValueError("One-shot prompt needs exactly one placeholder per image")
+                elif args.include_image_size:
                     prompt_text += (
                         f" The image is {image.width} pixels wide and {image.height} pixels high."
                         " Return boxes using the model's normalized 0 to 1000 coordinate scale."
                     )
                 elif args.image_size_only:
                     prompt_text += f" The image is {image.width} pixels wide and {image.height} pixels high."
-                answer = predict(model, processor, tokenizer, image, args, prompt_text)
+                answer = predict(model, processor, tokenizer, image, args, prompt_text,
+                                 example_image=example)
                 predictions, rejected = parse_predictions(answer, args.localization_only)
             display_truth = ([{**box, "class": "defect"} for box in truth]
                              if args.localization_only else truth)
@@ -256,6 +284,8 @@ def main() -> None:
             record = {
                 "image": str(image_path),
                 "model": args.model + (
+                    " (one-shot image example, P04)" if references
+                    else
                     " (localization only, with image size only)" if args.localization_only and args.image_size_only
                     else " (localization only, with image size)" if args.localization_only and args.include_image_size
                     else " (localization only)" if args.localization_only
@@ -267,6 +297,7 @@ def main() -> None:
                     else ""
                 ),
                 "prompt": prompts if args.one_class_at_a_time else prompt_text,
+                **({"few_shot_reference": references[0]["source_image"]} if references else {}),
                 "answer": answers if args.one_class_at_a_time else answer,
                 "ground_truth": truth, "predictions": predictions,
                 "task": "localization" if args.localization_only else "class_detection",
