@@ -15,7 +15,7 @@ import torch
 from PIL import Image, ImageDraw
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
-from locany_image_example import build_prompt, load_references
+from locany_image_example import build_prompt, choose_reference, load_references
 
 
 NAMES = {0: "pore", 1: "deposit", 2: "discontinuity", 3: "stain"}
@@ -210,10 +210,6 @@ def main() -> None:
         selected = choose_images(args.split / "images", args.split / "labels", args.limit)
     output = args.output.expanduser()
     references = load_references(args.few_shot_manifest) if args.few_shot_manifest else None
-    example = None
-    if references:
-        with Image.open(references[0]["image"]) as opened:
-            example = opened.convert("RGB")
     image_output = output / "compare"
     image_output.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
@@ -228,6 +224,13 @@ def main() -> None:
         for image_path in selected:
             with Image.open(image_path) as source:
                 image = source.convert("RGB")
+            reference = None
+            example = None
+            if references:
+                target_key = f"{args.split.parent.name}/{args.split.name}/images/{image_path.name}"
+                reference = choose_reference(references, target_key)
+                with Image.open(reference["image"]) as opened:
+                    example = opened.convert("RGB")
             truth = ground_truth(args.split / "labels" / f"{image_path.stem}.txt")
             if args.one_class_at_a_time:
                 answers = {}
@@ -259,7 +262,7 @@ def main() -> None:
                 prompt_text = args.prompt_text
                 if references:
                     prompt_text = build_prompt(
-                        prompt_text, image.width, image.height, references[0]["answer"]
+                        prompt_text, image.width, image.height, reference["answer"]
                     )
                     if prompt_text.count("<image-1>") != 1 or prompt_text.count("<image-2>") != 1:
                         raise ValueError("One-shot prompt needs exactly one placeholder per image")
@@ -272,6 +275,8 @@ def main() -> None:
                     prompt_text += f" The image is {image.width} pixels wide and {image.height} pixels high."
                 answer = predict(model, processor, tokenizer, image, args, prompt_text,
                                  example_image=example)
+                if example is not None:
+                    example.close()
                 predictions, rejected = parse_predictions(answer, args.localization_only)
             display_truth = ([{**box, "class": "defect"} for box in truth]
                              if args.localization_only else truth)
@@ -297,7 +302,7 @@ def main() -> None:
                     else ""
                 ),
                 "prompt": prompts if args.one_class_at_a_time else prompt_text,
-                **({"few_shot_reference": references[0]["source_image"]} if references else {}),
+                **({"few_shot_reference": reference["source_image"]} if reference else {}),
                 "answer": answers if args.one_class_at_a_time else answer,
                 "ground_truth": truth, "predictions": predictions,
                 "task": "localization" if args.localization_only else "class_detection",

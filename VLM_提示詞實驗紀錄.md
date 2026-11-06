@@ -111,14 +111,23 @@ P03/P05 的原始回答也用相同規則重新解析，因此基準與先前「
 
 V5 相對 V4 的不分類定位多 21 個 TP（449 對 428），也多 73 個 FP（533 對 460），預測框增加 94 個。因此 V5 提高召回、降低精確率，兩者 F1 差 0.002，不能宣稱 V5 的畫框品質明顯超過 V4。P04 在原模型推論時較謹慎，但以 P04 訓練的 V5 沒有呈現同樣的精確率優勢；原模型提示詞 A/B 效果不能直接預測微調後的效果。V4 與 V5 的後續共同起點應先依預定主要目標與未參與這 100 張提示詞選擇的 validation 圖確認；舊 test 不用來挑母模型。
 
-### 2026-11-06 V5-image：one-shot 圖片問答範例（準備試驗，尚無結果）
+### 2026-11-06 V5-image：one-shot 圖片問答範例（8 張初試與改版）
 
 使用者決定接著試 V5-image。學長所說的 *few-shot* 是提供少量範例；本輪每次給 **一張有標準答案的訓練圖片**，更精確稱 *one-shot*。這與 NVIDIA 的 `visual_prompt=true` 不同：後者把目標類別的一塊影像裁圖當查詢，本輪則給另一張完整訓練圖片和它的框答案。官方程式支援 `<image-1>`、`<image-2>` 與圖片清單；但仍需先在 4090 上驗證實際 token 長度與訓練可行性。
 
-本輪保留 P04 文字與每張目標圖的尺寸，附加一段簡短說明和「範例圖片 `<image-2>`＋該圖 GT 答案」，要求模型只回答目標 `<image-1>`。範例只從 fold0 train 653 張挑選，固定選兩張類別涵蓋較廣且標註較短的圖片；每筆訓練只引用其中一張，若目標恰為範例原圖就改用另一張，避免自我示範。範例縮至最長邊 640 像素，正規化座標不變。validation/test 不提供範例來源。
+本輪保留 P04 文字與每張目標圖的尺寸，附加一段簡短說明和「範例圖片 `<image-2>`＋該圖 GT 答案」，要求模型只回答目標 `<image-1>`。範例是**未畫框的原圖**與其 GT 座標文字，不是直接把框畫在輸入圖片上；目標圖的 GT 不放在提問中。範例只從 fold0 train 選，縮至最長邊 640 像素，正規化座標不變。validation/test 圖不作範例來源。
+
+最初技術初試只固定兩張訓練圖，8 張 validation 的 V5 推論結果如下。兩組使用相同權重與 P04，差別只在 one-shot 區塊；IoU≥0.5，GT 共 76 框。
+
+| 8 張初試 | 預測框 | 分類＋定位 P / R / F1 | 不分類定位 P / R / F1 |
+| --- | ---: | --- | --- |
+| V5＋P04 | 92 | 0.261 / 0.316 / **0.286** | 0.348 / 0.421 / **0.381** |
+| V5＋P04＋固定 one-shot | 52 | **0.308** / 0.211 / 0.250 | **0.423** / 0.289 / 0.344 |
+
+固定範例讓兩種 precision 提高、預測框減少，但 recall 與 F1 下降；其中 deposit 與 discontinuity 明顯漏框。這 8 張不足以判斷圖片範例訓練的效果。使用者因此要求正式試驗改為**每筆從全部 653 張 fold0 train 均勻偽隨機抽一張不同於目標的圖片**。程式以種子 42 與目標路徑決定抽樣，並記錄每筆配對，重跑可重現。每筆樣本都有一張範例及答案；由於 streaming packing，訓練 step 與樣本筆數不必然一對一。先在 100 張 validation 上以此新版配對做推論比較，再進行完整訓練。
 
 先用已完成 V5 權重比較同 8 張 validation 的 P04 原提示與 P04＋one-shot，確認輸入、輸出和可能的複製範例座標問題。正式 V5-image 訓練**從與 V5 相同的原始 `nvidia/LocateAnything-3B` 權重開始**，保持 653 筆目標圖、GT、653 steps、LoRA 與其餘參數一致，才可把差異主要歸於圖片範例；不以 V5 checkpoint 再訓 653 步後直接宣稱 one-shot 改善。訓練前對 653 筆做實際多圖 token 長度檢查，超過 2048 的樣本就中止，避免訓練器默默略過。訓練後讓 V5、V5-image 都使用同一套 P04＋one-shot 條件在相同 validation 圖評估，同時報分類與不分類定位 P/R/F1、框數與拒收數；既有 V5＋P04 結果另外用來看推論時加入範例的影響。反覆使用這 100 張 validation 選方案屬探索性分析，正式 test 留到最後。
 
-對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。截至本紀錄更新，**僅準備腳本，尚未在 4090 執行，沒有 V5-image 分數**。
+對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。上述 8 張是**V5 權重的推論 prompt 初試**；V5-image 新權重尚未訓練，沒有其測試分數。
 
 方法來源：[NVIDIA LocateAnything 訓練資料格式](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/TRAINING.md)、[NVIDIA 多模態訓練資料處理](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。

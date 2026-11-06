@@ -6,7 +6,7 @@ source "$repo/.venv-vlm/bin/activate"
 cd "$repo"
 manifest="datasets/derived/locany_v5_image/manifest.json"
 [[ -f "$manifest" ]] || { echo "Run scripts/prepare_locany_v5_image.py first" >&2; exit 1; }
-base='runs/vlm/v5_image_p04_val100'
+base='runs/vlm/v5_image_p04_val100_random653'
 mkdir -p "$base"
 settings=(
   --split datasets/weld-dataset/kfold_high/fold0/val --limit 100

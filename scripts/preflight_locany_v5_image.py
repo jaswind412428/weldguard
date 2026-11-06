@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from eaglevl.train.augmentation import apply_resize_augmentation
 from eaglevl.train.locany_finetune_magi_stream import LazySupervisedDatasetMTP
 from eaglevl.train.tools import process_multimodal_sample
 from eaglevl.utils.locany.processing_locateanything import LocateAnythingProcessor
@@ -32,7 +33,26 @@ def main() -> None:
             row, str(meta["root"]), dataset.max_frames, dataset.target_fps,
             dataset.video_total_pixels, visual_prompt=False,
         )
-        sample = dataset.multi_modal_get_item(messages)
+        message_text = processor.py_apply_chat_template(messages, tokenize=False)
+        image_inputs, video_inputs = processor.process_vision_info(messages)
+        if image_inputs is None or len(image_inputs) != 2:
+            raise ValueError(f"Expected target plus one reference: {row['image'][0]}")
+        image_inputs = [
+            apply_resize_augmentation(
+                image, data_augment=False, min_long_edge=640,
+                max_long_edge=2560, augment_prob=0.5,
+            )
+            for image in image_inputs
+        ]
+        inputs = processor(
+            text=message_text, images=image_inputs, videos=video_inputs,
+            return_tensors="pt", padding=False, truncation=False,
+        )
+        input_ids = inputs["input_ids"][0]
+        dataset._validate_image_token_alignment(
+            input_ids, inputs["pixel_values"], inputs["image_grid_hws"]
+        )
+        sample = dataset.get_targets_flag_with_mtp(input_ids)
         length = int(sample["input_ids"].numel())
         if length > longest[0]:
             longest = (length, row["image"][0])

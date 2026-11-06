@@ -29,6 +29,7 @@ output = repo / "datasets/derived/locany_v5_image"
 references = save_reference_images(select_reference_rows(rows), root, output)
 p04_prompt = (repo / "prompts/locany_p04_balanced.txt").read_text(encoding="utf-8").strip()
 new_rows = []
+reference_use_counts = {reference["source_image"]: 0 for reference in references}
 for source_row in rows:
     target = source_row["image"]
     target_path = (root / target).resolve()
@@ -37,6 +38,7 @@ for source_row in rows:
     with Image.open(target_path) as opened:
         width, height = opened.size
     reference = choose_reference(references, target)
+    reference_use_counts[reference["source_image"]] += 1
     prompt = build_prompt(p04_prompt, width, height, reference["answer"])
     if prompt.count("<image-1>") != 1 or prompt.count("<image-2>") != 1:
         raise ValueError("Exactly one placeholder per image is required")
@@ -66,10 +68,11 @@ manifest = {
     "source_annotation_sha256": hashlib.sha256(source_annotation.read_bytes()).hexdigest(),
     "output_annotation_sha256": hashlib.sha256(annotation.read_bytes()).hexdigest(),
     "references": references,
+    "reference_selection": "uniform pseudorandom draw from all 653 train images excluding target; seed 42 plus target image path",
+    "reference_use_counts": reference_use_counts,
     "validation_or_test_examples_used": False,
 }
 (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-print(f"V5-image: {len(new_rows)} targets; one non-self labeled train example per target.")
-for reference in references:
-    print(f"Reference: {reference['source_image']} -> {reference['image']}")
+print(f"V5-image: {len(new_rows)} targets; {len(references)} train-only references in the pool.")
+print(f"Unique references used: {sum(count > 0 for count in reference_use_counts.values())}")
 print(annotation)
