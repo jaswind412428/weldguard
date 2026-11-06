@@ -93,8 +93,10 @@ P03/P05 的原始回答也用相同規則重新解析，因此基準與先前「
 
 先固定同一批 validation 圖，讓尚未微調的 LocateAnything 原模型分別使用「目前 P04」和「只增加缺陷型態描述的 P04 擴增版」推論，記錄原始回答、有效／拒收框、分類與不分類 P/R/F1。這可作為篩選訊號，**不能保證微調後也有同方向改善**。使用者原話為「給 GPT 比較」；若指 ChatGPT 視覺模型，它可以協助審閱提示詞和示例，但不能以它的辨識分數替代 LocateAnything 的同模型 A/B。先確認要比較的實際模型，再執行。反覆用同 100 張 validation 選提示詞屬探索性調整；確認方案時應使用未參與選擇的保留資料，test 留到最後。
 
-### 2026-11-06 V5 執行準備（尚未在 4090 訓練）
+### 2026-11-06 V5 執行與訓練回報
 
 已準備 `scripts/prepare_locany_v5_p04.py`、`scripts/train_locany_v5_p04.sh` 與 `scripts/evaluate_locany_v2_v4_v5_p04.sh`。訓練腳本沿用 V4 的單卡 LoRA 設定：原始 `nvidia/LocateAnything-3B`、653 筆 fold0 train、653 steps、microbatch 1、LoRA rank 8、learning rate 5e-5、linear scheduler、bf16、SDPA、block size 4、max sequence 2048。資料準備腳本直接重用 V2 的圖與 GT 答案，僅把 human 問題換成 P04 加每張圖的尺寸，並記錄資料雜湊；不讀取 fold0 validation 或 test 作訓練。訓練輸出路徑為 `runs/vlm/locany_v5_p04_epoch1`。
 
-4090 更新程式後，從專案根目錄執行 `bash scripts/train_locany_v5_p04.sh`。訓練完成後再執行 `bash scripts/evaluate_locany_v2_v4_v5_p04.sh`，讓 V2、V4、V5 **都以 P04＋尺寸**在相同 100 張 validation 圖推論，列出分類與不分類定位分數。這是同提示詞的權重比較；各版搭配自己訓練提示詞的分數可另列，但不能單憑它歸因於權重差異。以上腳本是待執行流程，尚無 V5 實際 loss 或評估結果。
+使用者回報已在 4090 完成 V5 訓練；終端的 `train metrics` 顯示 `epoch=1.0`、`train_loss=1.708`、`train_runtime=473.49 s`（約 7 分 53 秒）、`train_samples_per_second=1.379`、`train_steps_per_second=1.379`、`total_flos=20677977GF`，樣本模式為 streaming。這些數值來自使用者貼出的終端輸出；本機尚未直接核對遠端 `trainer_state.json` 與 checkpoint。單看 training loss 不能判定 V5 是否優於 V2 或 V4，且不同提示詞的 token 分布也可能影響 loss。
+
+下一步從專案根目錄執行 `bash scripts/evaluate_locany_v2_v4_v5_p04.sh`，讓 V2、V4、V5 **都以 P04＋尺寸**在相同 100 張 validation 圖推論，列出分類與不分類定位分數。這是同提示詞的權重比較；各版搭配自己訓練提示詞的分數可另列，但不能單憑它歸因於權重差異。V5 的 validation 結果尚未取得。
