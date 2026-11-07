@@ -124,10 +124,12 @@ V5 相對 V4 的不分類定位多 21 個 TP（449 對 428），也多 73 個 FP
 | V5＋P04 | 92 | 0.261 / 0.316 / **0.286** | 0.348 / 0.421 / **0.381** |
 | V5＋P04＋固定 one-shot | 52 | **0.308** / 0.211 / 0.250 | **0.423** / 0.289 / 0.344 |
 
-固定範例讓兩種 precision 提高、預測框減少，但 recall 與 F1 下降；其中 deposit 與 discontinuity 明顯漏框。這 8 張不足以判斷圖片範例訓練的效果。使用者因此要求正式試驗改為**每筆從全部 653 張 fold0 train 均勻偽隨機抽一張不同於目標的圖片**。程式以種子 42 與目標路徑決定抽樣，並記錄每筆配對，重跑可重現。每筆樣本都有一張範例及答案；由於 streaming packing，訓練 step 與樣本筆數不必然一對一。先在 100 張 validation 上以此新版配對做推論比較，再進行完整訓練。
+固定範例讓兩種 precision 提高、預測框減少，但 recall 與 F1 下降；其中 deposit 與 discontinuity 明顯漏框。這 8 張不足以判斷圖片範例訓練的效果。使用者因此要求正式試驗改為**每筆從全部 653 張 fold0 train 均勻偽隨機抽一張不同於目標的圖片**。程式以種子 42 與目標路徑決定抽樣，並記錄每筆配對，重跑可重現。每筆樣本都有一張範例及答案；由於 streaming packing，訓練 step 與樣本筆數不必然一對一。
 
-先用已完成 V5 權重比較同 8 張 validation 的 P04 原提示與 P04＋one-shot，確認輸入、輸出和可能的複製範例座標問題。正式 V5-image 訓練**從與 V5 相同的原始 `nvidia/LocateAnything-3B` 權重開始**，保持 653 筆目標圖、GT、653 steps、LoRA 與其餘參數一致，才可把差異主要歸於圖片範例；不以 V5 checkpoint 再訓 653 步後直接宣稱 one-shot 改善。訓練前對 653 筆做實際多圖 token 長度檢查，超過 2048 的樣本就中止，避免訓練器默默略過。訓練後讓 V5、V5-image 都使用同一套 P04＋one-shot 條件在相同 validation 圖評估，同時報分類與不分類定位 P/R/F1、框數與拒收數；既有 V5＋P04 結果另外用來看推論時加入範例的影響。反覆使用這 100 張 validation 選方案屬探索性分析，正式 test 留到最後。
+改版後，使用者回報同 100 張 fold0 validation（919 個 GT 框）的 V5 權重推論初試：只用 P04 時，分類 F1 0.337、不分類定位 F1 0.472；P04 加隨機 one-shot 時，分別降為 0.160 與 0.279。兩者 precision、recall 都下降；這只說明**尚未用雙圖範例訓練的 V5** 在推論時直接加範例效果變差，不能預測 V5-image 正式訓練結果。
 
-對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。上述 8 張是**V5 權重的推論 prompt 初試**；V5-image 新權重尚未訓練，沒有其測試分數。
+正式 V5-image 訓練**從與 V5 相同的原始 `nvidia/LocateAnything-3B` 權重開始**，保持 653 筆目標圖、GT、653 steps、LoRA 與其餘參數一致，差異集中在訓練時附加圖片範例；不以 V5 checkpoint 再訓 653 步後直接宣稱 one-shot 改善。訓練前對 653 筆做實際多圖 token 長度檢查，超過 2048 的樣本就中止，避免訓練器默默略過。**依使用者 2026-11-07 決定，訓練後的主要驗證讓 V5、V5-image 都只用 P04＋尺寸推論，不提供 one-shot 範例圖**，比較新增範例訓練是否改善單圖辨識；兩組使用相同 100 張 validation、生成設定與評分方式，同時報分類與不分類定位 P/R/F1。這個評估刻意讓 V5-image 的推論輸入少於訓練時的雙圖輸入，因此結果應解讀為「單圖推論遷移效果」，不代表其雙圖推論上限。反覆使用這 100 張 validation 選方案屬探索性分析，正式 test 留到最後。
+
+對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。上述 8 張與 100 張都是**V5 權重的推論 prompt 初試**；V5-image 新權重尚未回報完成，沒有其驗證分數。新版評估腳本的輸出目錄為 `runs/vlm/v5_image_p04_val100_no_example`，與先前 one-shot 試驗分開保存。
 
 方法來源：[NVIDIA LocateAnything 訓練資料格式](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/TRAINING.md)、[NVIDIA 多模態訓練資料處理](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
