@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# P04-derived NVIDIA two-image visual grounding, including absent-class rows.
+set -euo pipefail
+
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+source "$repo/.venv-vlm/bin/activate"
+cd "$repo"
+output="$repo/runs/vlm/locany_v5_visual_epoch1"
+[[ ! -e "$output" ]] || { echo "Output already exists: $output" >&2; exit 1; }
+
+python scripts/prepare_locany_v5_p04.py
+python scripts/prepare_locany_v5_visual.py
+recipe="$repo/datasets/derived/locany_v5_visual/full_recipe.json"
+annotation="$repo/datasets/derived/locany_v5_visual/train_full.jsonl"
+steps="$(wc -l < "$annotation")"
+[[ "$steps" -eq 2612 ]] || { echo "Expected 2612 classwise samples; found $steps" >&2; exit 1; }
+
+cd "$repo/eagle-vlm/Embodied"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python "$repo/scripts/preflight_locany_v5_image.py" \
+  --recipe "$recipe" --model nvidia/LocateAnything-3B --max-tokens 2048
+
+mkdir -p "$output"
+cp "$repo/results/v2_training_metadata.json" "$output/v2_reference_parameters.json"
+cp "$repo/datasets/derived/locany_v5_visual/manifest.json" "$output/data_manifest.json"
+cp "$repo/datasets/derived/locany_v5_visual/training_prompt_template.txt" "$output/training_prompt_template.txt"
+LAUNCHER=pytorch python -m torch.distributed.run --nproc_per_node=1 \
+  eaglevl/train/locany_finetune_magi_stream.py \
+  --model_name_or_path nvidia/LocateAnything-3B \
+  --meta_path "$recipe" \
+  --output_dir "$output" --overwrite_output_dir False \
+  --max_steps "$steps" --num_train_epochs 1 \
+  --block_size 4 --causal_attn False --attn_implementation sdpa \
+  --freeze_llm True --freeze_backbone True --freeze_mlp False \
+  --use_llm_lora 8 --use_backbone_lora 0 --vision_select_layer -1 \
+  --per_device_train_batch_size 1 --gradient_accumulation_steps 1 \
+  --learning_rate 5e-5 --lr_scheduler_type linear \
+  --warmup_steps 0 --warmup_ratio 0 --weight_decay 0 --max_grad_norm 1 \
+  --optim adamw_torch_fused --adam_beta1 0.9 --adam_beta2 0.999 --adam_epsilon 1e-8 \
+  --save_strategy steps --save_steps 100 --save_total_limit 3 --logging_steps 10 \
+  --bf16 True --fp16 False --seed 42 --dataloader_num_workers 0 \
+  --group_by_length False --gradient_checkpointing False --grad_checkpoint False \
+  --max_seq_length 2048 --max_num_tokens_per_sample 2048 --max_num_tokens 2048 \
+  --packing_buffer_size 4 --do_train True \
+  --deepspeed deepspeed_configs/zero_stage2_config.json \
+  --report_to none --run_name V5_visual_P04_epoch1 2>&1 | tee "$output/train.log"
+
+cd "$repo"
+python scripts/export_v3_training_metadata.py --run "$output" --output "$output/training_metadata.json"

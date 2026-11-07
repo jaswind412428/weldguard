@@ -157,3 +157,13 @@ V5-image 相對 V5：分類 TP 320→284、FP 662→611、FN 599→635；不分�
 V5-image 加入推論範例後，分類 F1 由 0.313 升至 0.338，不分類定位 F1 由 0.424 升至 0.456；相同 one-shot 輸入下也明顯好於未以範例訓練的 V5（分類 F1 0.160、定位 F1 0.279）。這顯示範例訓練改善了模型對雙圖 one-shot 輸入的處理，但**目前沒有超越不給範例的 V5 基準**：分類 F1 只差 0.001，定位 F1 仍低 0.016。`discontinuity` 在 V5-image 加推論範例後由 F1 0.407 升至 0.479，仍低於 V5 無範例的 0.527。這些數字是探索性 validation，不能當作獨立 test。
 
 方法來源：[NVIDIA LocateAnything 訓練資料格式](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/TRAINING.md)、[NVIDIA 多模態訓練資料處理](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
+
+### 2026-11-07 V5-visual：四類視覺查詢與缺席類別負例（已備妥，尚未訓練）
+
+這是與 V5-image 的「另一張完整圖片＋文字 GT 答案」不同的實驗。V5-visual 的第二張輸入是**無畫框的單一缺陷裁圖**，作為要找的視覺類別；模型只對第一張目標圖輸出該類的框。保留 P04 的四類定義、定位與 0–1000 座標規則，將第一句改為 NVIDIA 視覺查詢句型 `Detect all the objects in the image that belong to the category set: <image-2>.`，並附目標圖尺寸。這是 **P04 衍生的視覺版提示詞**，不是逐字原 P04。
+
+每張 fold0 train 圖產生 pore、deposit、discontinuity、stain 各一筆，共 653 × 4＝2612 筆。存在該類時，答案是 `<ref>類別</ref>` 後接該類所有 GT 框；不存在時是 `<ref>類別</ref><box>None</box>`。每筆都給一張**來自另一張 fold0 train 圖**、確有該類缺陷的裁圖；同一類的正例與負例採相同參考來源規則，避免模型只靠「裁圖是否來自目標圖」猜答案。所有 reference 只由 train 製作，validation/test 均不進入訓練。資料列按目標圖及四類順序建立，但官方 trainer 可能打亂與打包，**不能宣稱四類在每四個 optimizer steps 中嚴格依序出現**。資料準備會列出各類正負例數量，避免把大量負例誤認為類別平衡。
+
+NVIDIA 官方的 `visual_prompt=true` 會從**同一張目標圖**裁出正例當查詢，並且讓沒有框的負例維持純文字提問；因此它無法直接完成「負例也帶視覺裁圖」這個需求。本實驗使用官方支援的雙圖輸入格式和原訓練器，但由本專案預先組好跨訓練圖的裁圖與正負例，recipe 設 `visual_prompt: false` 以防二次自動裁圖。這個差異必須在報告中明示，不能稱為官方原樣的 auto-converter。來源：[NVIDIA Visual Prompt Fine-Tuning 說明](https://github.com/NVlabs/Eagle/blob/main/Embodied/README.md#visual-prompt-fine-tuning)、[NVIDIA 資料轉換實作](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
+
+從原始 `nvidia/LocateAnything-3B` 開始，保持 V5 的 LoRA rank 8、bf16、SDPA、microbatch 1、learning rate 5e-5、linear scheduler、block size 4 與最大 2048 tokens；訓練前逐筆檢查雙圖 token 長度。預定 2612 steps 為這批 classwise 查詢各看約一次，因此**訓練步數是 V5 的四倍**，不能把未來差異只歸因於視覺提示。輸出 `runs/vlm/locany_v5_visual_epoch1`，比較輸出 `runs/vlm/v5_visual_val100`。驗證對每張固定 100 張 fold0 val 圖查四類，參考裁圖仍只取 train；同時報分類及不分類定位 IoU≥0.5 的 P/R/F1 和原始輸出。與 V5 既有單圖 P04 分數相比，推論也由每圖一次變四次，應標示查詢成本差異。正式 test 暫不使用。
