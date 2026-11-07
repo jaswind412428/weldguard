@@ -130,6 +130,17 @@ V5 相對 V4 的不分類定位多 21 個 TP（449 對 428），也多 73 個 FP
 
 正式 V5-image 訓練**從與 V5 相同的原始 `nvidia/LocateAnything-3B` 權重開始**，保持 653 筆目標圖、GT、653 steps、LoRA 與其餘參數一致，差異集中在訓練時附加圖片範例；不以 V5 checkpoint 再訓 653 步後直接宣稱 one-shot 改善。訓練前對 653 筆做實際多圖 token 長度檢查，超過 2048 的樣本就中止，避免訓練器默默略過。**依使用者 2026-11-07 決定，訓練後的主要驗證讓 V5、V5-image 都只用 P04＋尺寸推論，不提供 one-shot 範例圖**，比較新增範例訓練是否改善單圖辨識；兩組使用相同 100 張 validation、生成設定與評分方式，同時報分類與不分類定位 P/R/F1。這個評估刻意讓 V5-image 的推論輸入少於訓練時的雙圖輸入，因此結果應解讀為「單圖推論遷移效果」，不代表其雙圖推論上限。反覆使用這 100 張 validation 選方案屬探索性分析，正式 test 留到最後。
 
-對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。上述 8 張與 100 張都是**V5 權重的推論 prompt 初試**；V5-image 新權重尚未回報完成，沒有其驗證分數。新版評估腳本的輸出目錄為 `runs/vlm/v5_image_p04_val100_no_example`，與先前 one-shot 試驗分開保存。
+對應腳本：`scripts/pilot_locany_v5_image.sh`、`scripts/train_locany_v5_image.sh`、`scripts/evaluate_locany_v5_image.sh`。上述 8 張與第一組 100 張都是**V5 權重的推論 prompt 初試**。新版評估腳本的輸出目錄為 `runs/vlm/v5_image_p04_val100_no_example`，與先前 one-shot 試驗分開保存。
+
+### 2026-11-07 V5-image 與 V5：只用 P04 單圖推論
+
+使用者回報 V5-image 權重的 100 張 fold0 validation 評估結果；兩個模型都使用 **P04＋圖片尺寸、沒有 one-shot 範例**，IoU≥0.5，GT 共 919 框。這表示 V5-image 模型已可推論，但尚未收到它的訓練日誌、實際 train loss 與完整 checkpoint 中繼資料。以下是 validation 的單圖推論結果，不是獨立 test 或 mAP。
+
+| 權重 | 有效預測框 | 分類＋定位 P / R / F1 | 不分類定位 P / R / F1 |
+| --- | ---: | --- | --- |
+| V5（P04 訓練） | 982 | 0.326 / 0.348 / **0.337** | 0.457 / 0.489 / **0.472** |
+| V5-image（P04＋圖片範例訓練） | 895 | 0.317 / 0.309 / 0.313 | 0.430 / 0.419 / 0.424 |
+
+V5-image 相對 V5：分類 TP 320→284、FP 662→611、FN 599→635；不分類定位 TP 449→385、FP 533→510、FN 470→534。模型少輸出 87 框，但 precision 和 recall 都下降，分類 F1 降 0.024，不分類定位 F1 降 0.048。分類 F1 的最大退步來自 discontinuity（0.527→0.407）；pore 由 0.063→0.099，但 TP 都只有 6；deposit 0.253→0.247、stain 0.300→0.302，差異很小。因此目前沒有證據顯示圖片範例訓練改善 **P04 單圖推論**。V5-image 訓練時有範例圖，推論時依使用者要求不給範例圖；這項分布差異須在結論註明。正式 test 仍保留，不用這次探索性 validation 反覆調參後宣稱獨立測試成果。
 
 方法來源：[NVIDIA LocateAnything 訓練資料格式](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/TRAINING.md)、[NVIDIA 多模態訓練資料處理](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
