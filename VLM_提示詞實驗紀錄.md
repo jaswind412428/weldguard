@@ -158,7 +158,7 @@ V5-image 加入推論範例後，分類 F1 由 0.313 升至 0.338，不分類定
 
 方法來源：[NVIDIA LocateAnything 訓練資料格式](https://github.com/NVlabs/Eagle/blob/main/Embodied/document/TRAINING.md)、[NVIDIA 多模態訓練資料處理](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
 
-### 2026-11-07 V5-visual：四類視覺查詢與缺席類別負例（已備妥，尚未訓練）
+### 2026-11-07 V5-visual：四類視覺查詢與缺席類別負例
 
 這是與 V5-image 的「另一張完整圖片＋文字 GT 答案」不同的實驗。V5-visual 的第二張輸入是**無畫框的單一缺陷裁圖**，作為要找的視覺類別；模型只對第一張目標圖輸出該類的框。保留 P04 的四類定義、定位與 0–1000 座標規則，將第一句改為 NVIDIA 視覺查詢句型 `Detect all the objects in the image that belong to the category set: <image-2>.`，並附目標圖尺寸。這是 **P04 衍生的視覺版提示詞**，不是逐字原 P04。
 
@@ -167,3 +167,14 @@ V5-image 加入推論範例後，分類 F1 由 0.313 升至 0.338，不分類定
 NVIDIA 官方的 `visual_prompt=true` 會從**同一張目標圖**裁出正例當查詢，並且讓沒有框的負例維持純文字提問；因此它無法直接完成「負例也帶視覺裁圖」這個需求。本實驗使用官方支援的雙圖輸入格式和原訓練器，但由本專案預先組好跨訓練圖的裁圖與正負例，recipe 設 `visual_prompt: false` 以防二次自動裁圖。這個差異必須在報告中明示，不能稱為官方原樣的 auto-converter。來源：[NVIDIA Visual Prompt Fine-Tuning 說明](https://github.com/NVlabs/Eagle/blob/main/Embodied/README.md#visual-prompt-fine-tuning)、[NVIDIA 資料轉換實作](https://github.com/NVlabs/Eagle/blob/main/Embodied/eaglevl/train/tools.py)。
 
 從原始 `nvidia/LocateAnything-3B` 開始，保持 V5 的 LoRA rank 8、bf16、SDPA、microbatch 1、learning rate 5e-5、linear scheduler、block size 4 與最大 2048 tokens；訓練前逐筆檢查雙圖 token 長度。預定 2612 steps 為這批 classwise 查詢各看約一次，因此**訓練步數是 V5 的四倍**，不能把未來差異只歸因於視覺提示。輸出 `runs/vlm/locany_v5_visual_epoch1`，比較輸出 `runs/vlm/v5_visual_val100`。驗證對每張固定 100 張 fold0 val 圖查四類，參考裁圖仍只取 train；同時報分類及不分類定位 IoU≥0.5 的 P/R/F1 和原始輸出。與 V5 既有單圖 P04 分數相比，推論也由每圖一次變四次，應標示查詢成本差異。正式 test 暫不使用。
+
+使用者回報 V5-visual 已完成 100 張 fold0 validation（GT 919 框、IoU≥0.5），與 V5 單圖 P04 的結果如下；尚未收到 V5-visual 訓練日誌，不能記錄實際 loss 或斷言 2612 steps 全部完成。
+
+| 條件 | 有效預測框 | 分類＋定位 TP / FP / FN | 分類＋定位 P / R / F1 | 不分類定位 TP / FP / FN | 不分類定位 P / R / F1 |
+| --- | ---: | --- | --- | --- | --- |
+| V5，P04 單圖 | 982 | 320 / 662 / 599 | 0.326 / 0.348 / 0.337 | 449 / 533 / 470 | 0.457 / 0.489 / 0.472 |
+| V5-visual，四類裁圖查詢 | 629 | 290 / 339 / 629 | 0.461 / 0.316 / 0.375 | 336 / 293 / 583 | 0.534 / 0.366 / 0.434 |
+
+V5-visual 的分類 F1 提升 0.038，卻少畫 353 框；不分類定位 F1 下降 0.038，尤其 pore 僅預測 6 框、命中 2 框。這是「更謹慎但漏框更多」的結果，無法說定位全面進步。兩組訓練步數、輸入形式、每圖推論次數也不同，表中比較不能單獨證明視覺裁圖的因果效果。
+
+下一步先在**同一個 V5-visual 權重**上做純提示詞 A/B：A 沿用只靠裁圖指定類別；B 對同一張裁圖另加一句明確類別名稱，例如「The second image shows an example of the pore defect class. Detect pore instances in the first image.」。保持 100 張 val 圖、每類 reference、四次查詢、生成參數與解析規則一致，檢查各類出框數、分類及不分類定位 P/R/F1。這只評估**推論時提供類別文字**是否有幫助；如有正向訊號，才考慮以文字類別＋視覺裁圖重新訓練。腳本：`scripts/evaluate_locany_v5_visual_class_hint.sh`。正式 test 仍保留。

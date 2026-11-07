@@ -30,6 +30,8 @@ def main() -> None:
     parser.add_argument("--repetition-penalty", type=float, default=1.1)
     parser.add_argument("--generation-mode", choices=("hybrid", "slow", "fast"), default="slow")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--name-reference-class", action="store_true",
+                        help="Add the reference crop's known class name to each query")
     args = parser.parse_args()
     if args.limit < 1 or args.max_new_tokens < 1 or args.max_input_tokens < 1:
         parser.error("--limit and token limits must be positive")
@@ -72,8 +74,15 @@ def main() -> None:
             used_references = {}
             predictions = []
             rejected = 0
-            prompt = prompt_for_target(template, image.width, image.height)
+            base_prompt = prompt_for_target(template, image.width, image.height)
+            prompts = {}
             for category in CLASSES:
+                prompt = base_prompt
+                if args.name_reference_class:
+                    prompt += (
+                        f" The second image shows an example of the {category} defect class."
+                        f" Detect {category} instances in the first image."
+                    )
                 reference = choose_reference(references, category, image_path.name, args.seed)
                 with Image.open(reference["image"]) as opened:
                     crop = opened.convert("RGB")
@@ -84,6 +93,7 @@ def main() -> None:
                 rejected += invalid + len(parsed) - len(accepted)
                 predictions.extend(accepted)
                 answers[category] = answer
+                prompts[category] = prompt
                 used_references[category] = {
                     "source_image": reference["source_image"],
                     "reference_crop": reference["image"],
@@ -96,8 +106,10 @@ def main() -> None:
             comparison.save(compare_dir / image_path.name, quality=95)
             record = {
                 "image": str(image_path),
-                "model": "V5-visual (P04, four train-crop queries)",
-                "prompt": prompt,
+                "model": ("V5-visual (P04, four train-crop queries, named class)"
+                          if args.name_reference_class else
+                          "V5-visual (P04, four train-crop queries)"),
+                "prompt": prompts if args.name_reference_class else base_prompt,
                 "references": used_references,
                 "answer": answers,
                 "ground_truth": truth,
