@@ -177,4 +177,15 @@ NVIDIA 官方的 `visual_prompt=true` 會從**同一張目標圖**裁出正例�
 
 V5-visual 的分類 F1 提升 0.038，卻少畫 353 框；不分類定位 F1 下降 0.038，尤其 pore 僅預測 6 框、命中 2 框。這是「更謹慎但漏框更多」的結果，無法說定位全面進步。兩組訓練步數、輸入形式、每圖推論次數也不同，表中比較不能單獨證明視覺裁圖的因果效果。
 
-下一步先在**同一個 V5-visual 權重**上做純提示詞 A/B：A 沿用只靠裁圖指定類別；B 對同一張裁圖另加一句明確類別名稱，例如「The second image shows an example of the pore defect class. Detect pore instances in the first image.」。保持 100 張 val 圖、每類 reference、四次查詢、生成參數與解析規則一致，檢查各類出框數、分類及不分類定位 P/R/F1。這只評估**推論時提供類別文字**是否有幫助；如有正向訊號，才考慮以文字類別＋視覺裁圖重新訓練。腳本：`scripts/evaluate_locany_v5_visual_class_hint.sh`。正式 test 仍保留。
+接著在**同一個 V5-visual 權重**上做純提示詞 A/B：A 沿用只靠裁圖指定類別；B 對同一張裁圖另加一句明確類別名稱，例如「The second image shows an example of the pore defect class. Detect pore instances in the first image.」。保持 100 張 val 圖、每類 reference、四次查詢、生成參數與解析規則一致。這只評估**推論時提供類別文字**是否有幫助。腳本：`scripts/evaluate_locany_v5_visual_class_hint.sh`。正式 test 仍保留。
+
+### 2026-11-08 V5-visual 類別名稱提示 A/B：同權重、同裁圖
+
+使用者回報上述 100 張 fold0 validation（919 個 GT 框、IoU≥0.5）結果。B 的唯一提示詞變化是對每次查詢明說 `<image-2>` 所屬類別，沒有重新訓練權重。
+
+| 提問方式 | 有效預測框 | 分類＋定位 TP / FP / FN | 分類＋定位 P / R / F1 | 不分類定位 TP / FP / FN | 不分類定位 P / R / F1 |
+| --- | ---: | --- | --- | --- | --- |
+| A：只給裁圖 | 629 | 290 / 339 / 629 | 0.461 / 0.316 / 0.375 | 336 / 293 / 583 | 0.534 / 0.366 / 0.434 |
+| B：裁圖＋明確類別名稱 | 793 | 331 / 462 / 588 | 0.417 / 0.360 / 0.387 | 373 / 420 / 546 | 0.470 / 0.406 / 0.436 |
+
+B 多輸出 164 框，分類 TP＋41、FP＋123，分類 F1 僅＋0.012；不分類定位 TP＋37、FP＋127，F1 僅＋0.002。分類各類 F1：pore 0.068→0.120、deposit 0.333→0.268、discontinuity 0.493→0.547、stain 0.327→0.355。文字類別提示提高召回，但降低精確率，對**定位品質**沒有明顯改善；不能據此斷言加類別名稱重訓會進步。尤其 pore 的 TP 仍只有 5／53，deposit 反而下降。下一步應先檢視各類正負訓練查詢比例、參考裁圖品質，以及漏框／誤框樣本，再決定是否需要混合提示詞重訓。這仍是多次探索性 validation，不能當獨立 test 成績。
