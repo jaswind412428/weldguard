@@ -1,0 +1,11 @@
+/input_images/*
+!/input_images/README.md
+/runs/*
+!/runs/README.md
+__pycache__/
+.venv/
+.env
+.env.*
+.api_key
+/transfer/*
+!/transfer/README.md
