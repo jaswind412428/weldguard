@@ -118,6 +118,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variant", choices=MODELS, required=True)
     parser.add_argument("--mode", choices=("none", "gt", "visual"), required=True)
+    parser.add_argument("--prompt-version", choices=("P04", "P09"), default="P04")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--render-count", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -135,15 +136,27 @@ def main() -> None:
         if not (model_path / name).is_file():
             parser.error(f"Training run is incomplete: missing {model_path / name}")
     images = selected_test_images()
-    p04_path = REPO / "prompts/locany_p04_balanced.txt"
-    p04 = p04_path.read_text(encoding="utf-8").strip()
+    prompt_path = (REPO / "prompts/locany_p04_balanced.txt" if args.prompt_version == "P04"
+                   else REPO / "prompts/locany_p09_inference.json")
+    if args.prompt_version == "P04":
+        p04 = prompt_path.read_text(encoding="utf-8").strip()
+        p09 = None
+    else:
+        p04 = None
+        p09 = json.loads(prompt_path.read_text(encoding="utf-8"))
+        if set(p09) != {"none", "gt", "visual"}:
+            parser.error("P09 must contain exactly the three inference modes")
+        for mode, prompt in p09.items():
+            if (not isinstance(prompt, str) or prompt.count("<image-1>") != 1
+                    or prompt.count("<image-2>") != (mode != "none")):
+                parser.error(f"Invalid P09 image placeholders for {mode}")
     gt_refs = load_gt_references() if args.mode == "gt" else None
     crop_refs = load_crop_references() if args.mode == "visual" else None
     settings = {"mode": args.generation_mode, "temperature": args.temperature,
                 "top_p": args.top_p, "repetition_penalty": args.repetition_penalty,
                 "max_new_tokens": args.max_new_tokens, "max_input_tokens": args.max_input_tokens,
                 "seed": args.seed, "queries_per_image": 4 if args.mode == "visual" else 1}
-    label = f"{args.variant.upper()} / {args.mode} / P04"
+    label = f"{args.variant.upper()} / {args.mode} / {args.prompt_version}"
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     record_path = output / "predictions.jsonl"
@@ -151,7 +164,7 @@ def main() -> None:
     metadata_path = output / "run_metadata.json"
     metadata = {"model": label, "model_path": str(model_path), "test_split": str(SPLIT),
                 "test_images": len(images), "test_used_for_training": False,
-                "prompt_file": str(p04_path), "prompt_sha256": digest(p04_path),
+                "prompt_file": str(prompt_path), "prompt_sha256": digest(prompt_path),
                 "reference_source": "fold0/train only" if args.mode != "none" else None,
                 "generation": settings}
     if metadata_path.is_file() and json.loads(metadata_path.read_text(encoding="utf-8")) != metadata:
@@ -179,13 +192,15 @@ def main() -> None:
             predictions = []
             rejected = 0
             if args.mode in ("none", "gt"):
-                prompt = p04 + SIZE.format(width=image.width, height=image.height)
+                prompt = (p04 + SIZE.format(width=image.width, height=image.height)
+                          if args.prompt_version == "P04" else p09[args.mode])
                 example = None
                 if args.mode == "gt":
                     ref = choose_gt_reference(gt_refs, f"test/images/{image_path.name}", args.seed)
                     with Image.open(ref["image"]) as opened:
                         example = opened.convert("RGB")
-                    prompt += GT_SUFFIX
+                    if args.prompt_version == "P04":
+                        prompt += GT_SUFFIX
                     references["gt"] = ref["source_image"]
                 torch.manual_seed(args.seed)
                 torch.cuda.manual_seed_all(args.seed)
@@ -196,7 +211,8 @@ def main() -> None:
                 prompts["all"] = prompt
                 answers["all"] = answer
             else:
-                prompt = visual_prompt(p04, image.width, image.height)
+                prompt = (visual_prompt(p04, image.width, image.height)
+                          if args.prompt_version == "P04" else p09["visual"])
                 for category in CLASSES:
                     ref = choose_crop_reference(crop_refs, category, image_path.name, args.seed)
                     with Image.open(ref["image"]) as opened:

@@ -19,6 +19,7 @@ MODES = ("none", "gt", "visual")
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
+    parser.add_argument("--prompt-version", choices=("P04", "P09"), default="P04")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     scores = args.run / "scores.csv"
@@ -26,13 +27,20 @@ def main() -> None:
         parser.error(f"Missing nine-way scores: {scores}")
     with scores.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    expected_models = {f"{variant.upper()} / {mode} / P04"
+    expected_models = {f"{variant.upper()} / {mode} / {args.prompt_version}"
                        for variant in MODELS for mode in MODES}
     if len(rows) != 45 or {row["model"] for row in rows} != expected_models:
         parser.error("scores.csv must contain nine model/input combinations and five class-aware rows each")
     files = [(scores, "scores.csv")]
     if (args.run / "scores.txt").is_file():
         files.append((args.run / "scores.txt", "scores.txt"))
+    for name in ("counts.csv", "counts.txt", "p04_vs_p09.csv"):
+        source = args.run / name
+        if source.is_file():
+            files.append((source, name))
+    if args.prompt_version == "P09":
+        prompt = Path(__file__).resolve().parents[1] / "prompts/locany_p09_inference.json"
+        files.append((prompt, "prompts/locany_p09_inference.json"))
     for variant in MODELS:
         model_run = args.run.parent / f"locany_{variant.replace('-', '_')}_p04_xy"
         loss = model_run / "loss_summary.json"

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# One final, class-aware evaluation on the held-out 205-image test set.
+# Class-aware evaluation of three V7 weights and three inference input modes.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+prompt_version="${1:-P04}"
+if [[ $# -gt 1 || ( "$prompt_version" != P04 && "$prompt_version" != P09 ) ]]; then
+  echo "Usage: bash scripts/evaluate_locany_v7_nine_test.sh [P04|P09]" >&2
+  exit 2
+fi
 source "$repo/.venv-vlm/bin/activate"
 cd "$repo"
 
@@ -35,12 +40,18 @@ if [[ ! -f datasets/derived/locany_v5_visual/manifest.json ]]; then
   python scripts/prepare_locany_v5_visual.py
 fi
 
-output="$repo/runs/vlm/v7_nine_test"
+if [[ "$prompt_version" == P04 ]]; then
+  output="$repo/runs/vlm/v7_nine_test"
+  report="$repo/results/v7_nine_test_report.zip"
+else
+  output="$repo/runs/vlm/v7_p09_nine_test"
+  report="$repo/results/v7_p09_nine_test_report.zip"
+fi
 mkdir -p "$output"
 for variant in v7 v7-g v7-n; do
   for mode in none gt visual; do
     python scripts/preview_locany_v7_nine_test.py \
-      --variant "$variant" --mode "$mode" \
+      --variant "$variant" --mode "$mode" --prompt-version "$prompt_version" \
       --output "$output/${variant}_${mode}" \
       --generation-mode slow --temperature 0.7 --top-p 0.9 \
       --repetition-penalty 1.1 --max-new-tokens 512 \
@@ -56,5 +67,13 @@ for variant in v7 v7-g v7-n; do
 done
 python scripts/evaluate_locany_predictions.py "${inputs[@]}" \
   --iou 0.5 --output "$output/scores.csv" 2>&1 | tee "$output/scores.txt"
+python scripts/summarize_locany_v7_nine_counts.py --run "$output" \
+  --prompt-version "$prompt_version" --output "$output/counts.csv" \
+  2>&1 | tee "$output/counts.txt"
+if [[ "$prompt_version" == P09 && -f "$repo/runs/vlm/v7_nine_test/scores.csv" ]]; then
+  python scripts/compare_locany_v7_prompt_scores.py \
+    --p04 "$repo/runs/vlm/v7_nine_test/scores.csv" \
+    --p09 "$output/scores.csv" --output "$output/p04_vs_p09.csv"
+fi
 python scripts/pack_locany_v7_nine_test.py --run "$output" \
-  --output "$repo/results/v7_nine_test_report.zip"
+  --prompt-version "$prompt_version" --output "$report"

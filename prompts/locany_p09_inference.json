@@ -1,0 +1,5 @@
+{
+  "none": "<image-1> Find the welding defects in this image.",
+  "gt": "<image-1> Find the welding defects in this image. <image-2> Use this labeled image as a reference to find welding defects in the first image.",
+  "visual": "<image-1> Find the welding defects in this image. <image-2> Use this image as a reference to find defects similar to the one shown here in the first image."
+}
