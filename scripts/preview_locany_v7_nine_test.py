@@ -118,7 +118,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variant", choices=MODELS, required=True)
     parser.add_argument("--mode", choices=("none", "gt", "visual"), required=True)
-    parser.add_argument("--prompt-version", choices=("P04", "P09"), default="P04")
+    parser.add_argument("--prompt-version", choices=("P04", "P09", "P10"), default="P04")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--render-count", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -136,20 +136,26 @@ def main() -> None:
         if not (model_path / name).is_file():
             parser.error(f"Training run is incomplete: missing {model_path / name}")
     images = selected_test_images()
-    prompt_path = (REPO / "prompts/locany_p04_balanced.txt" if args.prompt_version == "P04"
-                   else REPO / "prompts/locany_p09_inference.json")
+    prompt_path = REPO / {
+        "P04": "prompts/locany_p04_balanced.txt",
+        "P09": "prompts/locany_p09_inference.json",
+        "P10": "prompts/locany_p10_task_format_features.json",
+    }[args.prompt_version]
     if args.prompt_version == "P04":
         p04 = prompt_path.read_text(encoding="utf-8").strip()
-        p09 = None
+        alternate = None
     else:
         p04 = None
-        p09 = json.loads(prompt_path.read_text(encoding="utf-8"))
-        if set(p09) != {"none", "gt", "visual"}:
-            parser.error("P09 must contain exactly the three inference modes")
-        for mode, prompt in p09.items():
+        alternate = json.loads(prompt_path.read_text(encoding="utf-8"))
+        if set(alternate) != {"none", "gt", "visual"}:
+            parser.error(f"{args.prompt_version} must contain exactly the three inference modes")
+        for mode, prompt in alternate.items():
             if (not isinstance(prompt, str) or prompt.count("<image-1>") != 1
                     or prompt.count("<image-2>") != (mode != "none")):
-                parser.error(f"Invalid P09 image placeholders for {mode}")
+                parser.error(f"Invalid {args.prompt_version} image placeholders for {mode}")
+            if args.prompt_version == "P10" and (prompt.count("{width}") != 1 or
+                                                  prompt.count("{height}") != 1):
+                parser.error(f"P10 must place the image dimensions in {mode}")
     gt_refs = load_gt_references() if args.mode == "gt" else None
     crop_refs = load_crop_references() if args.mode == "visual" else None
     settings = {"mode": args.generation_mode, "temperature": args.temperature,
@@ -193,7 +199,8 @@ def main() -> None:
             rejected = 0
             if args.mode in ("none", "gt"):
                 prompt = (p04 + SIZE.format(width=image.width, height=image.height)
-                          if args.prompt_version == "P04" else p09[args.mode])
+                          if args.prompt_version == "P04" else
+                          alternate[args.mode].format(width=image.width, height=image.height))
                 example = None
                 if args.mode == "gt":
                     ref = choose_gt_reference(gt_refs, f"test/images/{image_path.name}", args.seed)
@@ -212,7 +219,8 @@ def main() -> None:
                 answers["all"] = answer
             else:
                 prompt = (visual_prompt(p04, image.width, image.height)
-                          if args.prompt_version == "P04" else p09["visual"])
+                          if args.prompt_version == "P04" else
+                          alternate["visual"].format(width=image.width, height=image.height))
                 for category in CLASSES:
                     ref = choose_crop_reference(crop_refs, category, image_path.name, args.seed)
                     with Image.open(ref["image"]) as opened:

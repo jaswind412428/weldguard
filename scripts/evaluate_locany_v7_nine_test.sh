@@ -4,8 +4,8 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 prompt_version="${1:-P04}"
-if [[ $# -gt 1 || ( "$prompt_version" != P04 && "$prompt_version" != P09 ) ]]; then
-  echo "Usage: bash scripts/evaluate_locany_v7_nine_test.sh [P04|P09]" >&2
+if [[ $# -gt 1 || ( "$prompt_version" != P04 && "$prompt_version" != P09 && "$prompt_version" != P10 ) ]]; then
+  echo "Usage: bash scripts/evaluate_locany_v7_nine_test.sh [P04|P09|P10]" >&2
   exit 2
 fi
 source "$repo/.venv-vlm/bin/activate"
@@ -43,9 +43,12 @@ fi
 if [[ "$prompt_version" == P04 ]]; then
   output="$repo/runs/vlm/v7_nine_test"
   report="$repo/results/v7_nine_test_report.zip"
-else
+elif [[ "$prompt_version" == P09 ]]; then
   output="$repo/runs/vlm/v7_p09_nine_test"
   report="$repo/results/v7_p09_nine_test_report.zip"
+else
+  output="$repo/runs/vlm/v7_p10_nine_test"
+  report="$repo/results/v7_p10_nine_test_report.zip"
 fi
 mkdir -p "$output"
 for variant in v7 v7-g v7-n; do
@@ -70,10 +73,12 @@ python scripts/evaluate_locany_predictions.py "${inputs[@]}" \
 python scripts/summarize_locany_v7_nine_counts.py --run "$output" \
   --prompt-version "$prompt_version" --output "$output/counts.csv" \
   2>&1 | tee "$output/counts.txt"
-if [[ "$prompt_version" == P09 && -f "$repo/runs/vlm/v7_nine_test/scores.csv" ]]; then
+if [[ "$prompt_version" != P04 && -f "$repo/runs/vlm/v7_nine_test/scores.csv" ]]; then
+  prompt_lower="${prompt_version,,}"
   python scripts/compare_locany_v7_prompt_scores.py \
     --p04 "$repo/runs/vlm/v7_nine_test/scores.csv" \
-    --p09 "$output/scores.csv" --output "$output/p04_vs_p09.csv"
+    --other "$output/scores.csv" --other-version "$prompt_version" \
+    --output "$output/p04_vs_${prompt_lower}.csv"
 fi
 python scripts/pack_locany_v7_nine_test.py --run "$output" \
   --prompt-version "$prompt_version" --output "$report"

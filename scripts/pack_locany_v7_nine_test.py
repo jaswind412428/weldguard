@@ -19,7 +19,7 @@ MODES = ("none", "gt", "visual")
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
-    parser.add_argument("--prompt-version", choices=("P04", "P09"), default="P04")
+    parser.add_argument("--prompt-version", choices=("P04", "P09", "P10"), default="P04")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     scores = args.run / "scores.csv"
@@ -34,13 +34,15 @@ def main() -> None:
     files = [(scores, "scores.csv")]
     if (args.run / "scores.txt").is_file():
         files.append((args.run / "scores.txt", "scores.txt"))
-    for name in ("counts.csv", "counts.txt", "p04_vs_p09.csv"):
+    for name in ("counts.csv", "counts.txt", "p04_vs_p09.csv", "p04_vs_p10.csv"):
         source = args.run / name
         if source.is_file():
             files.append((source, name))
-    if args.prompt_version == "P09":
-        prompt = Path(__file__).resolve().parents[1] / "prompts/locany_p09_inference.json"
-        files.append((prompt, "prompts/locany_p09_inference.json"))
+    if args.prompt_version in {"P09", "P10"}:
+        prompt_name = ("locany_p09_inference.json" if args.prompt_version == "P09"
+                       else "locany_p10_task_format_features.json")
+        prompt = Path(__file__).resolve().parents[1] / "prompts" / prompt_name
+        files.append((prompt, f"prompts/{prompt_name}"))
     for variant in MODELS:
         model_run = args.run.parent / f"locany_{variant.replace('-', '_')}_p04_xy"
         loss = model_run / "loss_summary.json"
