@@ -40,8 +40,14 @@ def main() -> None:
         expected = 2 if args.variant == "v7-g" else 1
         if args.variant != "v7-n" and image_count != expected:
             raise ValueError(f"Row {index}: expected {expected} images, got {image_count}")
-        if args.variant == "v7-n" and image_count not in (1, 2):
-            raise ValueError(f"Row {index}: expected one or two images, got {image_count}")
+        if args.variant == "v7-n":
+            positive = "<box><" in row["conversations"][1]["value"]
+            expected = 2 if positive else 1
+            if image_count != expected:
+                raise ValueError(
+                    f"Row {index}: visual conversion expected {expected} images "
+                    f"but got {image_count}; prompt={row['conversations'][0]['value'][:180]!r}"
+                )
         if images is not None:
             images = [apply_resize_augmentation(img, data_augment=False, min_long_edge=640,
                                                 max_long_edge=2560, augment_prob=0.5)

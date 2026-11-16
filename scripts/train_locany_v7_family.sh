@@ -21,7 +21,7 @@ if [[ ! -f datasets/derived/locany_v6_xy_p04/train_full.jsonl ]]; then
   python scripts/prepare_locany_v6_xy.py
 fi
 data="$repo/datasets/derived/locany_v7/$variant"
-if [[ ! -f "$data/manifest.json" ]]; then
+if [[ "$variant" == "v7-n" || ! -f "$data/manifest.json" ]]; then
   python scripts/prepare_locany_v7_family.py --variant "$variant"
 fi
 [[ -f "$data/train_recipe.json" && -f "$data/val_recipe.json" ]] || {

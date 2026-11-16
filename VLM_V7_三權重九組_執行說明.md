@@ -25,6 +25,8 @@ bash scripts/train_locany_v7_family.sh v7-n
 
 每個腳本先產生 `datasets/derived/locany_v7/<版本>/` 的資料及 manifest，檢查訓練／validation 樣本的實際 token 長度與 NVIDIA visual prompt 轉換，再從原始模型訓練。若任一筆超過 2048 tokens，會在訓練前停止，避免靜默丟資料。NVIDIA 原訓練器把 `eval_dataset` 固定設為 `None`；`make_locany_v7_eval_trainer.py` 會建立**另一份 V7 專用副本**，加入有限長度的 validation loss 評估，原檔不覆寫。它會核對關鍵程式片段；如果 4090 上的 Eagle 版本與預期不同，會停止並顯示錯誤，不盲目修改。
 
+V7-N 的資料每次執行都會重新產生，避免使用到舊版單類查詢。NVIDIA 的轉換器只辨認 `Detect all the objects in the image that belong to the category set: <類別>.` 句型；預檢會逐筆確認有標註的正例變成兩張圖、無該類的負例維持一張圖。若兩者數量不符，就會在訓練前停止。
+
 完成後看三個資料夾：
 
 ```text

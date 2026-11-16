@@ -154,7 +154,9 @@ def classwise(rows: list[dict], p04: str) -> tuple[list[dict], dict]:
         boxes = parse_answer(row["conversations"][1]["value"])
         for category in CLASSES:
             selected = [(name, box) for name, box in boxes if name == category]
-            prompt = (f"<image-1> Locate all the instances that matches the following description: {category}.\n\n"
+            # NVIDIA's visual-prompt converter matches this exact category-set
+            # sentence and replaces its category with the cropped image query.
+            prompt = (f"<image-1> Detect all the objects in the image that belong to the category set: {category}.\n\n"
                       + paragraphs[1] + "\n\n" + paragraphs[2]
                       + " Search for the requested visual pattern only. Return boxes for that pattern; "
                         "if absent, return the class ref tag followed by <box>none</box>."
