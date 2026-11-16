@@ -1,4 +1,4 @@
-"""Fail before V7 training if samples are truncated or visual conversion is wrong."""
+"""Fail before V7/V8 training if samples are truncated or visual conversion is wrong."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from eaglevl.utils.locany.processing_locateanything import LocateAnythingProcess
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recipe", type=Path, required=True)
-    parser.add_argument("--variant", choices=("v7", "v7-g", "v7-n"), required=True)
+    parser.add_argument("--variant", choices=("v7", "v7-g", "v7-n", "v8", "v8-g", "v8-n"), required=True)
     parser.add_argument("--max-tokens", type=int, default=2048)
     args = parser.parse_args()
     recipe = json.loads(args.recipe.read_text(encoding="utf-8"))
@@ -37,10 +37,10 @@ def main() -> None:
         images, videos = processor.process_vision_info(messages)
         image_count = 0 if images is None else len(images)
         counts[image_count] += 1
-        expected = 2 if args.variant == "v7-g" else 1
-        if args.variant != "v7-n" and image_count != expected:
+        expected = 2 if args.variant.endswith("-g") else 1
+        if not args.variant.endswith("-n") and image_count != expected:
             raise ValueError(f"Row {index}: expected {expected} images, got {image_count}")
-        if args.variant == "v7-n":
+        if args.variant.endswith("-n"):
             positive = "<box><" in row["conversations"][1]["value"]
             expected = 2 if positive else 1
             if image_count != expected:
@@ -66,7 +66,7 @@ def main() -> None:
         if (index + 1) % 100 == 0:
             print(f"Checked {index + 1}/{len(rows)}", flush=True)
     print(f"Checked {len(rows)} samples, image counts={dict(counts)}, longest={longest}")
-    if args.variant == "v7-n":
+    if args.variant.endswith("-n"):
         # The official converter should make positive class queries two-image
         # samples and keep absent classes as one-image text queries.
         if counts[1] == 0 or counts[2] == 0:

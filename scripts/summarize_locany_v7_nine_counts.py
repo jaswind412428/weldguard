@@ -1,4 +1,4 @@
-"""Count accepted boxes and empty outputs for a nine-way V7 inference run."""
+"""Count accepted boxes and empty outputs for a nine-way V7/V8 inference run."""
 
 from __future__ import annotations
 
@@ -8,18 +8,18 @@ import json
 from pathlib import Path
 
 
-MODELS = ("v7", "v7-g", "v7-n")
 MODES = ("none", "gt", "visual")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
-    parser.add_argument("--prompt-version", choices=("P04", "P09"), required=True)
+    parser.add_argument("--family", choices=("v7", "v8"), default="v7")
+    parser.add_argument("--prompt-version", choices=("P04", "P09", "P10"), required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     summary = []
-    for variant in MODELS:
+    for variant in (args.family, f"{args.family}-g", f"{args.family}-n"):
         for mode in MODES:
             source = args.run / f"{variant}_{mode}" / "predictions.jsonl"
             if not source.is_file():

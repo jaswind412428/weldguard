@@ -1,4 +1,4 @@
-"""Package nine-way score evidence and a small set of rendered examples.
+"""Package V7/V8 nine-way score evidence and rendered examples.
 
 Raw test prediction records, model weights, and dataset files stay on the 4090.
 """
@@ -12,13 +12,13 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
-MODELS = ("v7", "v7-g", "v7-n")
 MODES = ("none", "gt", "visual")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
+    parser.add_argument("--family", choices=("v7", "v8"), default="v7")
     parser.add_argument("--prompt-version", choices=("P04", "P09", "P10"), default="P04")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -27,8 +27,9 @@ def main() -> None:
         parser.error(f"Missing nine-way scores: {scores}")
     with scores.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
+    models = (args.family, f"{args.family}-g", f"{args.family}-n")
     expected_models = {f"{variant.upper()} / {mode} / {args.prompt_version}"
-                       for variant in MODELS for mode in MODES}
+                       for variant in models for mode in MODES}
     if len(rows) != 45 or {row["model"] for row in rows} != expected_models:
         parser.error("scores.csv must contain nine model/input combinations and five class-aware rows each")
     files = [(scores, "scores.csv")]
@@ -43,14 +44,17 @@ def main() -> None:
                        else "locany_p10_task_format_features.json")
         prompt = Path(__file__).resolve().parents[1] / "prompts" / prompt_name
         files.append((prompt, f"prompts/{prompt_name}"))
-    for variant in MODELS:
-        model_run = args.run.parent / f"locany_{variant.replace('-', '_')}_p04_xy"
+    for variant in models:
+        model_run = args.run.parent / f"locany_{variant.replace('-', '_')}_{'p04' if args.family == 'v7' else 'p10'}_xy"
         loss = model_run / "loss_summary.json"
         manifest = model_run / "data_manifest.json"
         for source in (loss, manifest):
             if not source.is_file():
                 parser.error(f"Missing training evidence: {source}")
             files.append((source, f"training/{variant}/{source.name}"))
+        for source in (model_run / "training_metadata.json", model_run / "loss_curve.csv"):
+            if source.is_file():
+                files.append((source, f"training/{variant}/{source.name}"))
         for mode in MODES:
             folder = args.run / f"{variant}_{mode}"
             metadata = folder / "run_metadata.json"

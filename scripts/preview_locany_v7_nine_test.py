@@ -1,4 +1,4 @@
-"""Run one V7 weight/input combination on the held-out 205-image test split.
+"""Run one V7 or V8 weight/input combination on the held-out 205-image test split.
 
 The two reference modes use only fold0/train images. Predictions are written
 incrementally so rerunning the same command resumes after an interruption.
@@ -28,6 +28,9 @@ MODELS = {
     "v7": REPO / "runs/vlm/locany_v7_p04_xy",
     "v7-g": REPO / "runs/vlm/locany_v7_g_p04_xy",
     "v7-n": REPO / "runs/vlm/locany_v7_n_p04_xy",
+    "v8": REPO / "runs/vlm/locany_v8_p10_xy",
+    "v8-g": REPO / "runs/vlm/locany_v8_g_p10_xy",
+    "v8-n": REPO / "runs/vlm/locany_v8_n_p10_xy",
 }
 SIZE = " The image is {width} pixels wide and {height} pixels high. Return boxes using the model's normalized 0 to 1000 coordinate scale."
 GT_SUFFIX = (
@@ -46,9 +49,9 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def load_gt_references() -> list[dict]:
-    annotation = REPO / "datasets/derived/locany_v7/v7/train.jsonl"
-    folder = REPO / "datasets/derived/locany_v7/gt_references"
+def load_gt_references(family: str) -> list[dict]:
+    annotation = REPO / f"datasets/derived/locany_{family}/{family}/train.jsonl"
+    folder = REPO / f"datasets/derived/locany_{family}/gt_references"
     rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines() if line]
     if len(rows) != 653:
         raise ValueError(f"Expected 653 train references; got {len(rows)}")
@@ -156,7 +159,7 @@ def main() -> None:
             if args.prompt_version == "P10" and (prompt.count("{width}") != 1 or
                                                   prompt.count("{height}") != 1):
                 parser.error(f"P10 must place the image dimensions in {mode}")
-    gt_refs = load_gt_references() if args.mode == "gt" else None
+    gt_refs = load_gt_references(args.variant.split("-")[0]) if args.mode == "gt" else None
     crop_refs = load_crop_references() if args.mode == "visual" else None
     settings = {"mode": args.generation_mode, "temperature": args.temperature,
                 "top_p": args.top_p, "repetition_penalty": args.repetition_penalty,
