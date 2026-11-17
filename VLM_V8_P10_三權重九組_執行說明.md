@@ -37,3 +37,17 @@ git push origin HEAD
 ```
 
 本輪與 V7 共用資料切分，因此可以比較，但 V8-P10 對 V7-P04 同時更動了訓練與推論提示詞；若要單獨估計訓練提示詞的影響，還需拿 V7-P10 作同條件對照。test 已用於多輪探索；不宜再把在此選出的最高分當成全新盲測結果。
+
+## 從逐張結果挑選差異案例
+
+九組推論完成後，可挑出最多 12 張差距較大的 test 圖。每張比較圖同時顯示 GT、訓練集 GT 參考圖、四類 visual 裁圖及九組實際標框；封包也包含 205 張逐張 TP／FP／FN／F1 表，不含完整資料集或模型權重。
+
+```bash
+cd ~/weldguard
+git pull --ff-only origin master
+source .venv-vlm/bin/activate
+python scripts/pack_locany_v8_difference_cases.py
+git add -f results/v8_p10_difference_cases.zip
+git commit -m "Add selected V8 P10 disagreement examples"
+git push origin HEAD
+```
