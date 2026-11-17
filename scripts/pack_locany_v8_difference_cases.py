@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 RUN = REPO / "runs/vlm/v8_p10_nine_test"
 OUTPUT = REPO / "results/v8_p10_difference_cases.zip"
 VARIANTS = ("v8", "v8-g", "v8-n")
-MODES = ("none", "gt", "visual")
+MODES = ("gt", "visual", "none")
 KEYS = tuple(f"{variant}_{mode}" for variant in VARIANTS for mode in MODES)
 COLORS = {"pore": "#ff4040", "deposit": "#00b8d9", "discontinuity": "#f5a623", "stain": "#21b573"}
 CELL_W, CELL_H = 640, 360
@@ -94,11 +94,11 @@ def choose_cases(metrics: dict[str, dict], per_reason: int) -> list[dict]:
     # four GT boxes so a single match cannot dominate the per-image F1.
     contrasts = (
         ("V8: GT image reduces F1", "v8_none", "v8_gt", "f1"),
-        ("V8: visual input adds false boxes", "v8_visual", "v8_none", "fp"),
+        ("V8: visual adds false boxes versus GT", "v8_visual", "v8_gt", "fp"),
         ("V8-G: GT image restores F1", "v8-g_gt", "v8-g_none", "f1"),
         ("V8-G: visual input adds false boxes", "v8-g_visual", "v8-g_gt", "fp"),
-        ("V8-N: visual input restores F1", "v8-n_visual", "v8-n_none", "f1"),
-        ("V8 versus V8-N without a reference", "v8_none", "v8-n_none", "f1"),
+        ("V8-N: visual restores F1 versus GT", "v8-n_visual", "v8-n_gt", "f1"),
+        ("V8-N: GT image reduces F1", "v8-n_none", "v8-n_gt", "f1"),
     )
     selected: dict[str, dict] = {}
     for reason, high, low, field in contrasts:
@@ -251,7 +251,8 @@ def main() -> None:
         archive.writestr("selection.json", json.dumps(selected_data, ensure_ascii=False, indent=2) + "\n")
         archive.writestr("README.txt", "V8/P10, 205 test images, class-aware IoU >= 0.5. "
                          "Each sheet shows target GT, one train GT reference, four train visual crops, "
-                         "and all nine model/input outputs. TP/FP/FN are per image.\n")
+                         "and all nine model/input outputs, with GT and visual columns first. "
+                         "TP/FP/FN are per image.\n")
         import io
         csv_data = io.StringIO()
         writer = csv.DictWriter(csv_data, fieldnames=all_rows[0].keys())
