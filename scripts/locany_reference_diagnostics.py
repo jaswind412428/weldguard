@@ -11,6 +11,25 @@ import re
 from evaluate_locany_predictions import CLASSES, iou, scores
 
 
+def trace_grid_to_list(grid):
+    """Serialize processor grids without changing the input passed to the model.
+
+    Processors can return NumPy arrays, PyTorch tensors, or ordinary sequences
+    for image_grid_hws, even with return_tensors='pt'.
+    """
+    if grid is None:
+        return None
+    if hasattr(grid, "detach"):
+        grid = grid.detach().cpu()
+    if hasattr(grid, "tolist"):
+        grid = grid.tolist()
+    if isinstance(grid, (list, tuple)):
+        return [trace_grid_to_list(value) for value in grid]
+    if isinstance(grid, (int, float, bool)):
+        return grid
+    raise TypeError(f"Unsupported image_grid_hws trace value: {type(grid)}")
+
+
 def parse_answer(answer):
     result, rejected, category = [], 0, None
     pattern = r"<ref>(.*?)</ref>|<box><(\d{1,4})><(\d{1,4})><(\d{1,4})><(\d{1,4})></box>"

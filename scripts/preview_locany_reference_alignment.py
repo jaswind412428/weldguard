@@ -13,7 +13,7 @@ from transformers import AutoConfig, AutoModel, AutoProcessor, AutoTokenizer
 
 from evaluate_locany_predictions import count_matches
 from locany_image_example import choose_reference as choose_gt
-from locany_reference_diagnostics import parse_answer
+from locany_reference_diagnostics import parse_answer, trace_grid_to_list
 from locany_visual_prompt import CLASSES, choose_reference as choose_crop
 from prepare_locany_reference_alignment import OUT, choose_reference, sha
 from preview_locany_v7_nine_test import MODELS, ROOT, REPO, load_crop_references, load_gt_references
@@ -47,7 +47,7 @@ def predict_traced(model, processor, tokenizer, target, example, prompt, args):
         "processed_images": len(images), "input_tokens": input_tokens,
         "pixel_values_shape": list(pixels.shape), "pixel_values_dtype": str(pixels.dtype),
         "processed_pixel_sha256": pixel_digest,
-        "image_grid_hws": grid.detach().cpu().tolist() if grid is not None else None,
+        "image_grid_hws": trace_grid_to_list(grid),
         "rendered_prompt_sha256": hashlib.sha256(rendered.encode()).hexdigest()}
     inputs = inputs.to("cuda")
     torch.manual_seed(args.seed)

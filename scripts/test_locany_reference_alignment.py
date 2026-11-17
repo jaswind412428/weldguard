@@ -13,7 +13,7 @@ from pathlib import Path
 from PIL import Image
 
 from evaluate_locany_predictions import count_matches
-from locany_reference_diagnostics import diagnose, matching, prediction_views
+from locany_reference_diagnostics import diagnose, matching, prediction_views, trace_grid_to_list
 from prepare_locany_reference_alignment import make_bank, make_class_rows, choose_reference
 
 
@@ -22,6 +22,29 @@ def box(category, coordinates):
 
 
 class ReferenceDiagnosticsTests(unittest.TestCase):
+    def test_numpy_grid_trace_is_json_serializable(self):
+        import numpy as np
+        grid = np.array([[4, 16, 1], [8, 8, 1]], dtype=np.int64)
+        before = grid.copy()
+        result = trace_grid_to_list(grid)
+        self.assertEqual(json.loads(json.dumps(result)), [[4, 16, 1], [8, 8, 1]])
+        np.testing.assert_array_equal(grid, before)
+
+    def test_tensor_like_grid_and_sequences(self):
+        class TensorGrid:
+            def detach(self):
+                return self
+
+            def cpu(self):
+                return self
+
+            def tolist(self):
+                return [[4, 16, 1]]
+
+        self.assertEqual(trace_grid_to_list(TensorGrid()), [[4, 16, 1]])
+        self.assertEqual(trace_grid_to_list(((4, 16, 1),)), [[4, 16, 1]])
+        self.assertIsNone(trace_grid_to_list(None))
+
     def test_same_place_wrong_class_counts_both_fp_fn(self):
         d = diagnose([box("pore", [0, 0, .2, .2])], [box("deposit", [0, 0, .2, .2])])
         self.assertEqual((d["scores"]["tp"], d["scores"]["fp"], d["scores"]["fn"]), (0, 1, 1))
