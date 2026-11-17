@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
-# Separate, optional training run after inspecting the validation pilot.
-# Hyperparameters match V8-N. P11 + external references are the experimental changes.
+# Train the reference-alignment candidate selected after full val164 analysis.
+# Default P10/original; preserve the earlier P11/context experiment as an option.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo/.venv-vlm/bin/activate"
 cd "$repo"
-python scripts/prepare_locany_reference_alignment.py
-data="$repo/datasets/derived/locany_reference_alignment"
-output="$repo/runs/vlm/locany_reference_aligned_p11_epoch1"
+profile="${1:-p10-original}"
+limit="${EVAL_LIMIT:-164}"
+case "$limit" in 20|164) ;; *) echo 'EVAL_LIMIT must be 20 or 164' >&2; exit 2;; esac
+case "$profile" in
+  p10-original)
+    python scripts/prepare_locany_reference_p10.py
+    data="$repo/datasets/derived/locany_reference_p10_original"
+    output="$repo/runs/vlm/locany_reference_aligned_p10_original_epoch1"
+    variant=aligned-p10; prompt=P10; bank=original
+    prompt_file="$repo/prompts/locany_p10_task_format_features.json"
+    ;;
+  p11-context)
+    python scripts/prepare_locany_reference_alignment.py
+    data="$repo/datasets/derived/locany_reference_alignment"
+    output="$repo/runs/vlm/locany_reference_aligned_p11_epoch1"
+    variant=aligned; prompt=P11; bank=context
+    prompt_file="$repo/prompts/locany_p11_class_reference.txt"
+    ;;
+  *) echo 'Usage: bash scripts/train_locany_reference_alignment.sh [p10-original|p11-context]' >&2; exit 2;;
+esac
+[[ -f "$repo/datasets/derived/locany_reference_alignment/manifest.json" ]] || {
+  echo 'Run the reference validation pilot first to establish the fixed validation selection' >&2; exit 1;
+}
 if [[ -e "$output" ]]; then
   echo "Output already exists; keep this experiment immutable: $output" >&2
   exit 1
@@ -22,7 +42,7 @@ for split in train val; do
 done
 mkdir -p "$output"
 cp "$data/manifest.json" "$output/data_manifest.json"
-cp "$repo/prompts/locany_p11_class_reference.txt" "$output/training_prompt.txt"
+cp "$prompt_file" "$output/training_prompt_source.txt"
 export WELDGUARD_V7_VAL_RECIPE="$data/val_recipe.json"
 LAUNCHER=pytorch python -m torch.distributed.run --nproc_per_node=1 \
   eaglevl/train/locany_v7_eval_stream.py \
@@ -45,15 +65,20 @@ LAUNCHER=pytorch python -m torch.distributed.run --nproc_per_node=1 \
   --grad_checkpoint False --max_seq_length 2048 --max_num_tokens_per_sample 2048 \
   --max_num_tokens 2048 --packing_buffer_size 4 --do_train True \
   --deepspeed deepspeed_configs/zero_stage2_config.json --report_to none \
-  --run_name Reference_aligned_P11_epoch1 2>&1 | tee "$output/train.log"
+  --run_name "Reference_aligned_${profile}_epoch1" 2>&1 | tee "$output/train.log"
 cd "$repo"
 python scripts/export_v3_training_metadata.py --run "$output" --output "$output/training_metadata.json"
 python scripts/summarize_locany_v7_loss.py --run "$output"
 # Use exactly the same held-out validation selection; no test evaluation here.
-python scripts/preview_locany_reference_alignment.py --variant aligned --mode visual \
-  --prompt P11 --reference-bank context --limit 20 \
-  --output "$repo/runs/vlm/reference_alignment_val20/aligned_visual_P11_context"
-pilot="$repo/runs/vlm/reference_alignment_val20"
+python scripts/preview_locany_reference_alignment.py --variant "$variant" --mode visual \
+  --prompt "$prompt" --reference-bank "$bank" --limit "$limit" \
+  --output "$repo/runs/vlm/reference_alignment_val${limit}/${variant}_visual_${prompt}_${bank}"
+pilot="$repo/runs/vlm/reference_alignment_val${limit}"
+metadata_dir="$pilot/training_${profile}"
+mkdir -p "$metadata_dir"
+for name in training_metadata.json loss_summary.json data_manifest.json trainer_state.json; do
+  if [[ -f "$output/$name" ]]; then cp "$output/$name" "$metadata_dir/$name"; fi
+done
 inputs=("$pilot"/*/predictions.jsonl)
 python scripts/analyze_locany_reference_errors.py "${inputs[@]}" --output "$pilot/analysis"
 python scripts/pack_locany_reference_pilot.py --run "$pilot"

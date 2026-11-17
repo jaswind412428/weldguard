@@ -2,6 +2,8 @@
 
 日期：2026-11-17。目的：先找出 FP／FN 的來源，再確認參考圖片是否有效，最後才用對齊後的資料訓練。以下為實作與待執行實驗，沒有新模型分數。
 
+**完整 val164 更新：**七組封包已核對，P11 與新參考庫未取得整體收益；後續預設訓練改為 **P10＋原參考庫＋正負例都帶外部訓練裁圖**。P11／context 的原訓練候選仍可明確指定。完整數據見 `VLM_參考圖改善_val164分析.md`；這個候選尚未訓練完成，不能寫成改善成果。
+
 ## 查到的方法與本次採用範圍
 
 | 來源 | 核對到的內容 | 本專案採用範圍 |
@@ -87,19 +89,20 @@ ALL_WEIGHTS=1 bash scripts/run_locany_reference_pilot.sh
 
 ## 第二階段：正負例對齊後的訓練
 
-已準備好獨立腳本，不會由第一階段自動啟動。先看第一階段，避免輸入仍有問題就訓練。
+完整 val164 已完成。獨立腳本預設使用 P10 與原參考庫；參考圖來源只取 train，正負例均為兩圖。
 
 ```bash
-bash scripts/train_locany_reference_alignment.sh
+bash scripts/train_locany_reference_alignment.sh p10-original
 ```
 
-實驗資料夾：`runs/vlm/locany_reference_aligned_p11_epoch1`。先用內容描述命名，尚未取新的 V 編號。
+預設實驗資料夾：`runs/vlm/locany_reference_aligned_p10_original_epoch1`。先用內容描述命名，尚未取新的 V 編號。原 P11 候選可用 `bash scripts/train_locany_reference_alignment.sh p11-context`，仍存到原本 P11 實驗資料夾，不混寫資料或權重。
 
 | 項目 | 設定 |
 |---|---|
 | 起點 | nvidia/LocateAnything-3B，從 base 訓練，不續接 V8-N |
 | 資料 | 相同 fold0 train653／val164；四類各一筆；外部 train 參考 |
-| 提示詞 | P11，訓練／推論同一模板 |
+| 提示詞 | P10 visual，訓練／推論同一模板 |
+| 參考庫 | 原本的 train 緊裁圖，沿用已驗證的參考選取邏輯 |
 | 正／負查詢 | 都是目標圖＋外部該類裁圖；負例答 None |
 | 答案 | 同類 GT，x1 再 y1 排序，座標 0–1000 |
 | 訓練量 | 2,612 steps，依四類查詢資料量設的名義一輪；streaming／packing 實際處理筆數仍以日誌為準 |
@@ -111,16 +114,18 @@ bash scripts/train_locany_reference_alignment.sh
 | 保存／val loss | 每 400 steps；保留最多 3 個 checkpoint，載入 val loss 最佳者 |
 | seed | 42 |
 
-這些參數刻意與 V8-N 對齊，這輪改的是提示詞與參考資料結構；兩者同時改，因此新訓練若改善，不能只歸功於其中一項。官方現行腳本另有不同的 block、LoRA rank、LR 與 warmup 預設，尚未在此輪套用，避免混淆。
+這些參數刻意與 V8-N 對齊，推論固定 P10／原參考庫。訓練改用明確的外部裁圖，正負例都是兩圖，並直接使用與推論一致的 P10 模板；仍不是只改一個負例開關，因此改善不能只歸功於單一因素。官方現行腳本另有不同的 block、LoRA rank、LR 與 warmup 預設，尚未在此輪套用，避免混淆。
 
-訓練前會檢查全部 train／val 的兩圖數量、token 對齊與長度，超過 2048 直接中止，不截斷答案。完成後自動跑同一 val20 並重新打包結果。
+訓練前會檢查全部 train／val 的兩圖數量、token 對齊與長度，超過 2048 直接中止，不截斷答案。完成後預設自動跑同一 val164，與既有七組一起評分並重新打包；使用 `EVAL_LIMIT=20` 可只先跑同一批 val20。報告包會帶訓練參數、loss 摘要、資料 manifest 與 trainer state，不包含權重。
+
+新模型不能只以 None 回答變多判定成功；必須同時看負類誤報、四類 TP／FN／R／F1，避免變成任何問題都回答 None。raw 與同類去重仍分開列，不預設套用 query_filter。
 
 如果要比較保留下來的 checkpoint 的實際分類 F1，而不只看 loss：
 
 ```bash
-bash scripts/evaluate_locany_reference_checkpoints.sh
+bash scripts/evaluate_locany_reference_checkpoints.sh p10-original
 # 候選方法固定後，再擴至完整 val：
-LIMIT=164 bash scripts/evaluate_locany_reference_checkpoints.sh
+LIMIT=164 bash scripts/evaluate_locany_reference_checkpoints.sh p10-original
 ```
 
 ## 分析產物如何看

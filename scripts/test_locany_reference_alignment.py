@@ -15,6 +15,8 @@ from PIL import Image
 from evaluate_locany_predictions import count_matches
 from locany_reference_diagnostics import diagnose, matching, prediction_views, trace_grid_to_list
 from prepare_locany_reference_alignment import make_bank, make_class_rows, choose_reference
+from prepare_locany_reference_p10 import load_original_bank
+from locany_visual_prompt import choose_reference as choose_original_reference
 
 
 def box(category, coordinates):
@@ -138,6 +140,44 @@ class ReferenceDiagnosticsTests(unittest.TestCase):
                 self.assertIn("<image-2>", row["conversations"][0]["value"])
             reference = choose_reference(bank, "pore", rows[0]["image"])
             self.assertEqual(reference["source_image"], rows[1]["image"])
+
+    def test_p10_original_reference_selection_matches_inference(self):
+        bank = [{"class": c, "source_image": f"fold0/train/images/{i}.jpg", "image": f"{i}_{c}.png"}
+                for i in range(5) for c in ("pore", "deposit", "discontinuity", "stain")]
+        for target in ("fold0/train/images/0.jpg", "fold0/val/images/25_12.jpg"):
+            for category in ("pore", "deposit", "discontinuity", "stain"):
+                self.assertEqual(choose_reference(bank, category, target, 42),
+                                 choose_original_reference(bank, category, target, 42))
+
+    def test_p10_bank_rejects_validation_reference(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "fold0/val/images/a.png"
+            source.parent.mkdir(parents=True)
+            Image.new("RGB", (10, 10)).save(source)
+            manifest = {"validation_or_test_used_in_training": False, "references": [
+                {"class": "pore", "source_image": "fold0/val/images/a.png", "image": str(source)}]}
+            with self.assertRaises(ValueError):
+                load_original_bank(root, manifest)
+
+    def test_p10_template_with_two_image_negative_answer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / "fold0/train/images/a.png"
+            target.parent.mkdir(parents=True)
+            Image.new("RGB", (100, 40)).save(target)
+            bank = [{"class": c, "source_image": "fold0/train/images/b.png", "image": f"b_{c}.png"}
+                    for c in ("pore", "deposit", "discontinuity", "stain")]
+            row = {"image": "fold0/train/images/a.png", "conversations": [
+                {"from": "human", "value": "unused"},
+                {"from": "gpt", "value": "<ref>pore</ref><box><100><100><200><200></box>"}]}
+            prompt_path = Path(__file__).resolve().parents[1] / "prompts/locany_p10_task_format_features.json"
+            template = json.loads(prompt_path.read_text(encoding="utf-8"))["visual"]
+            prepared, counts = make_class_rows([row], bank, root, template)
+            self.assertEqual(sum(counts["negative"].values()), 3)
+            self.assertEqual(len({r["conversations"][0]["value"] for r in prepared}), 1)
+            self.assertTrue(all(len(r["image"]) == 2 for r in prepared))
+            self.assertEqual(prepared[1]["conversations"][1]["value"], "<ref>deposit</ref><box>none</box>")
 
 
 if __name__ == "__main__":

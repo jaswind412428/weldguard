@@ -91,7 +91,7 @@ def comparison(target, truth, predictions, references, path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=(*MODELS, "aligned"), required=True)
+    parser.add_argument("--variant", choices=(*MODELS, "aligned", "aligned-p10"), required=True)
     parser.add_argument("--mode", choices=("none", "gt", "visual"), required=True)
     parser.add_argument("--prompt", choices=("P10", "P11"), default="P10")
     parser.add_argument("--reference-bank", choices=("original", "context"), default="original")
@@ -108,14 +108,17 @@ def main():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest["configuration"]["seed"] != args.seed:
         parser.error("Seed differs from reference preparation")
-    model_path = (REPO / "runs/vlm/locany_reference_aligned_p11_epoch1" if args.variant == "aligned"
-                  else MODELS[args.variant])
+    aligned_models = {
+        "aligned": REPO / "runs/vlm/locany_reference_aligned_p11_epoch1",
+        "aligned-p10": REPO / "runs/vlm/locany_reference_aligned_p10_original_epoch1",
+    }
+    model_path = aligned_models[args.variant] if args.variant in aligned_models else MODELS[args.variant]
     if not all((model_path / name).is_file() for name in ("config.json", "done.txt", "loss_summary.json")):
         parser.error(f"Incomplete model: {model_path}")
     model_root = model_path
     if args.checkpoint:
-        if args.variant != "aligned" or not re.fullmatch(r"checkpoint-\d+", args.checkpoint):
-            parser.error("--checkpoint requires aligned and a checkpoint-N directory name")
+        if args.variant not in aligned_models or not re.fullmatch(r"checkpoint-\d+", args.checkpoint):
+            parser.error("--checkpoint requires an aligned model and a checkpoint-N directory name")
         model_path = model_path / args.checkpoint
         if not (model_path / "config.json").is_file():
             parser.error(f"Missing checkpoint config: {model_path}")
