@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Default: six controlled conditions on the SAME fixed 20 validation images.
+# Default: seven controlled conditions on the SAME fixed 20 validation images.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo/.venv-vlm/bin/activate"
@@ -28,6 +28,7 @@ conditions=(
   'v8-g gt P10 original'
   'v8-g gt P10 context'
   'v8-n visual P10 original'
+  'v8-n visual P10 context'
   'v8-n visual P11 original'
   'v8-n visual P11 context'
 )
@@ -36,6 +37,7 @@ if [[ "${ALL_WEIGHTS:-0}" == 1 ]]; then
   for variant in v8 v8-g v8-n; do
     conditions+=("$variant none P10 original" "$variant gt P10 original"
       "$variant gt P10 context" "$variant visual P10 original"
+      "$variant visual P10 context"
       "$variant visual P11 original" "$variant visual P11 context")
   done
 fi
