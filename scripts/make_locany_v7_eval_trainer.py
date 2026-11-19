@@ -14,6 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / "eagle-vlm/Embodied/eaglevl/train/locany_finetune_magi_stream.py"
 TARGET = REPO / "eagle-vlm/Embodied/eaglevl/train/locany_v7_eval_stream.py"
+CONTINUATION_TARGET = TARGET.with_name("locany_v8_n2_whole_eval_stream.py")
 
 
 EVAL_CLASS = '''class FiniteValidationMTP(Dataset):
@@ -85,9 +86,45 @@ def replace_once(source: str, old: str, new: str) -> str:
     return source.replace(old, new, 1)
 
 
+def use_existing_llm_adapter(source: str) -> str:
+    load = """        model = LocateAnythingForConditionalGeneration.from_pretrained(
+            model_args.model_name_or_path,
+            torch_dtype=torch.bfloat16, config=config,
+            attn_implementation=model_args.attn_implementation
+        )"""
+    checked_load = """        model, loading_info = LocateAnythingForConditionalGeneration.from_pretrained(
+            model_args.model_name_or_path,
+            torch_dtype=torch.bfloat16, config=config,
+            attn_implementation=model_args.attn_implementation, output_loading_info=True
+        )
+        adapter_errors = [
+            key for field in ("missing_keys", "unexpected_keys") for key in loading_info.get(field, [])
+            if ".lora_" in key
+        ]
+        if adapter_errors or loading_info.get("mismatched_keys") or loading_info.get("error_msgs"):
+            raise ValueError(f"Could not restore V8-N2 checkpoint weights: {loading_info}")
+"""
+    wrap = """    if model_args.use_llm_lora:
+        model.wrap_llm_lora(r=model_args.use_llm_lora, lora_alpha=2 * model_args.use_llm_lora)
+        model.config.use_llm_lora = model_args.use_llm_lora
+"""
+    restore = """    if not model_args.use_llm_lora:
+        raise ValueError("V8-N2 continuation needs the existing LLM LoRA rank")
+    adapter = getattr(model.language_model, "peft_config", {}).get("default")
+    if adapter is None or adapter.r != model_args.use_llm_lora:
+        raise ValueError("V8-N2's saved LLM adapter was not restored with the expected rank")
+    model.language_model.set_adapter("default")
+    if not any(".lora_" in name and param.requires_grad for name, param in model.language_model.named_parameters()):
+        raise ValueError("V8-N2's restored LLM adapter is not trainable")
+    logger.info("Continuing V8-N2 from the restored LLM adapter with a fresh optimizer")
+"""
+    return replace_once(replace_once(source, load, checked_load), wrap, restore)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--show-hash", action="store_true")
+    parser.add_argument("--continue-llm-lora", action="store_true")
     args = parser.parse_args()
     original = SOURCE.read_text(encoding="utf-8")
     modified = original
@@ -97,14 +134,17 @@ def main() -> None:
         '    logger.info(f"Dataset built in {time.time() - t_start:.2f}s")\n',
         '    logger.info(f"Dataset built in {time.time() - t_start:.2f}s")\n\n' + EVAL_BUILD)
     modified = replace_once(modified, "        eval_dataset=None,", "        eval_dataset=validation_dataset,")
+    target = CONTINUATION_TARGET if args.continue_llm_lora else TARGET
+    if args.continue_llm_lora:
+        modified = use_existing_llm_adapter(modified)
     digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
-    if TARGET.exists() and TARGET.read_text(encoding="utf-8") != modified:
-        raise FileExistsError(f"A different V7 trainer already exists: {TARGET}")
-    TARGET.write_text(modified, encoding="utf-8")
-    print(f"V7 trainer: {TARGET}")
+    if target.exists() and target.read_text(encoding="utf-8") != modified:
+        raise FileExistsError(f"A different trainer already exists: {target}")
+    target.write_text(modified, encoding="utf-8")
+    print(f"Validation trainer: {target}")
     print(f"Upstream SHA256: {digest}")
     if args.show_hash:
-        print(f"V7 trainer SHA256: {hashlib.sha256(modified.encode('utf-8')).hexdigest()}")
+        print(f"Validation trainer SHA256: {hashlib.sha256(modified.encode('utf-8')).hexdigest()}")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,8 @@ from eaglevl.utils.locany.processing_locateanything import LocateAnythingProcess
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recipe", type=Path, required=True)
-    parser.add_argument("--variant", choices=("v7", "v7-g", "v7-n", "v8", "v8-g", "v8-n"), required=True)
+    parser.add_argument("--variant", choices=("v7", "v7-g", "v7-n", "v8", "v8-g", "v8-n", "v8-n2-whole"), required=True)
+    parser.add_argument("--model", default="nvidia/LocateAnything-3B")
     parser.add_argument("--max-tokens", type=int, default=2048)
     args = parser.parse_args()
     recipe = json.loads(args.recipe.read_text(encoding="utf-8"))
@@ -24,7 +25,7 @@ def main() -> None:
         raise ValueError("Expected exactly one recipe entry")
     meta = next(iter(recipe.values()))
     rows = [json.loads(line) for line in Path(meta["annotation"]).read_text(encoding="utf-8").splitlines() if line]
-    processor = LocateAnythingProcessor.from_pretrained("nvidia/LocateAnything-3B", trust_remote_code=True)
+    processor = LocateAnythingProcessor.from_pretrained(args.model, trust_remote_code=True)
     dataset = LazySupervisedDatasetMTP("v7_preflight", meta, processor, block_size=4)
     counts = Counter()
     longest = (0, "")
@@ -37,7 +38,12 @@ def main() -> None:
         images, videos = processor.process_vision_info(messages)
         image_count = 0 if images is None else len(images)
         counts[image_count] += 1
-        expected = 2 if args.variant.endswith("-g") else 1
+        if args.variant == "v8-n2-whole":
+            expected = len(row["image"]) if isinstance(row["image"], list) else 1
+            if expected not in (1, 2):
+                raise ValueError(f"Row {index}: expected one target and at most one reference")
+        else:
+            expected = 2 if args.variant.endswith("-g") else 1
         if not args.variant.endswith("-n") and image_count != expected:
             raise ValueError(f"Row {index}: expected {expected} images, got {image_count}")
         if args.variant.endswith("-n"):
@@ -66,6 +72,8 @@ def main() -> None:
         if (index + 1) % 100 == 0:
             print(f"Checked {index + 1}/{len(rows)}", flush=True)
     print(f"Checked {len(rows)} samples, image counts={dict(counts)}, longest={longest}")
+    if args.variant == "v8-n2-whole" and (counts[1] == 0 or counts[1] != counts[2]):
+        raise ValueError(f"Expected equal counts of one-image and two-image rows: {counts}")
     if args.variant.endswith("-n"):
         # The official converter should make positive class queries two-image
         # samples and keep absent classes as one-image text queries.

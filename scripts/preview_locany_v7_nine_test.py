@@ -31,6 +31,7 @@ MODELS = {
     "v8": REPO / "runs/vlm/locany_v8_p10_xy",
     "v8-g": REPO / "runs/vlm/locany_v8_g_p10_xy",
     "v8-n": REPO / "runs/vlm/locany_v8_n_p10_xy",
+    "v8-n2-whole": REPO / "runs/vlm/locany_v8_n2_whole_p10",
 }
 SIZE = " The image is {width} pixels wide and {height} pixels high. Return boxes using the model's normalized 0 to 1000 coordinate scale."
 GT_SUFFIX = (
@@ -63,6 +64,17 @@ def load_gt_references(family: str) -> list[dict]:
             raise ValueError(f"Invalid train-only GT reference {source}: {path}")
         refs.append({"source_image": source, "image": str(path.resolve())})
     return refs
+
+
+def load_fixed_gt_reference(manifest: dict) -> dict:
+    ref = manifest["fixed_reference"]
+    source = (ROOT / ref["source_image"]).resolve()
+    rendered = Path(ref["image"]).resolve()
+    if (set(ref["classes"]) != set(CLASSES) or
+            source.parent != (ROOT / "fold0/train/images").resolve() or
+            not source.is_file() or not rendered.is_file() or digest(rendered) != ref["sha256"]):
+        raise ValueError("The fixed test example must match the prepared four-class training reference")
+    return ref
 
 
 def load_crop_references() -> list[dict]:
@@ -132,6 +144,9 @@ def main() -> None:
     parser.add_argument("--generation-mode", choices=("slow", "hybrid", "fast"), default="slow")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    whole_image = args.variant == "v8-n2-whole"
+    if whole_image and (args.prompt_version != "P10" or args.mode not in ("none", "gt")):
+        parser.error("V8-N2 whole-image evaluation uses P10 with none or gt mode")
     if not torch.cuda.is_available():
         parser.error("CUDA is required")
     model_path = MODELS[args.variant]
@@ -159,13 +174,21 @@ def main() -> None:
             if args.prompt_version == "P10" and (prompt.count("{width}") != 1 or
                                                   prompt.count("{height}") != 1):
                 parser.error(f"P10 must place the image dimensions in {mode}")
-    gt_refs = load_gt_references(args.variant.split("-")[0]) if args.mode == "gt" else None
+    fixed_reference = None
+    if whole_image:
+        manifest = json.loads((model_path / "data_manifest.json").read_text(encoding="utf-8"))
+        if manifest["test_used"] is not False or manifest["prompt_sha256"] != digest(prompt_path):
+            raise ValueError("V8-N2 training manifest or P10 prompt does not match the test setup")
+        if args.mode == "gt":
+            fixed_reference = load_fixed_gt_reference(manifest)
+    gt_refs = load_gt_references(args.variant.split("-")[0]) if args.mode == "gt" and not whole_image else None
     crop_refs = load_crop_references() if args.mode == "visual" else None
     settings = {"mode": args.generation_mode, "temperature": args.temperature,
                 "top_p": args.top_p, "repetition_penalty": args.repetition_penalty,
                 "max_new_tokens": args.max_new_tokens, "max_input_tokens": args.max_input_tokens,
                 "seed": args.seed, "queries_per_image": 4 if args.mode == "visual" else 1}
-    label = f"{args.variant.upper()} / {args.mode} / {args.prompt_version}"
+    model_name = "V8-N2 (whole-image)" if whole_image else args.variant.upper()
+    label = f"{model_name} / {args.mode} / {args.prompt_version}"
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     record_path = output / "predictions.jsonl"
@@ -176,6 +199,9 @@ def main() -> None:
                 "prompt_file": str(prompt_path), "prompt_sha256": digest(prompt_path),
                 "reference_source": "fold0/train only" if args.mode != "none" else None,
                 "generation": settings}
+    if whole_image:
+        metadata["training_state_sha256"] = digest(model_path / "trainer_state.json")
+        metadata["fixed_reference"] = fixed_reference
     if metadata_path.is_file() and json.loads(metadata_path.read_text(encoding="utf-8")) != metadata:
         raise ValueError(f"Run metadata changed; refusing to append to {record_path}")
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -206,7 +232,7 @@ def main() -> None:
                           alternate[args.mode].format(width=image.width, height=image.height))
                 example = None
                 if args.mode == "gt":
-                    ref = choose_gt_reference(gt_refs, f"test/images/{image_path.name}", args.seed)
+                    ref = fixed_reference or choose_gt_reference(gt_refs, f"test/images/{image_path.name}", args.seed)
                     with Image.open(ref["image"]) as opened:
                         example = opened.convert("RGB")
                     if args.prompt_version == "P04":
