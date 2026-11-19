@@ -7,8 +7,10 @@ the original trainer. It aborts if the expected source structure has changed.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 from pathlib import Path
+from textwrap import indent
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -87,38 +89,56 @@ def replace_once(source: str, old: str, new: str) -> str:
 
 
 def use_existing_llm_adapter(source: str) -> str:
-    load = """        model = LocateAnythingForConditionalGeneration.from_pretrained(
-            model_args.model_name_or_path,
-            torch_dtype=torch.bfloat16, config=config,
-            attn_implementation=model_args.attn_implementation
-        )"""
-    checked_load = """        model, loading_info = LocateAnythingForConditionalGeneration.from_pretrained(
-            model_args.model_name_or_path,
-            torch_dtype=torch.bfloat16, config=config,
-            attn_implementation=model_args.attn_implementation, output_loading_info=True
-        )
-        adapter_errors = [
-            key for field in ("missing_keys", "unexpected_keys") for key in loading_info.get(field, [])
-            if ".lora_" in key
-        ]
-        if adapter_errors or loading_info.get("mismatched_keys") or loading_info.get("error_msgs"):
-            raise ValueError(f"Could not restore V8-N2 checkpoint weights: {loading_info}")
+    main = next(node for node in ast.parse(source).body
+                if isinstance(node, ast.FunctionDef) and node.name == "main")
+    loads, wraps = [], []
+    for node in ast.walk(main):
+        match node:
+            case ast.Assign(
+                targets=[ast.Name(id="model")],
+                value=ast.Call(func=ast.Attribute(
+                    value=ast.Name(id="LocateAnythingForConditionalGeneration"), attr="from_pretrained"
+                )),
+            ):
+                loads.append(node)
+            case ast.Expr(value=ast.Call(func=ast.Attribute(
+                value=ast.Name(id="model"), attr="wrap_llm_lora"
+            ))):
+                wraps.append(node)
+    if len(loads) != 1 or len(wraps) != 1:
+        raise ValueError(f"Expected one LocateAnything load and one LLM LoRA setup, got {len(loads)} and {len(wraps)}")
+
+    load, wrap = loads[0], wraps[0]
+    call = load.value
+    arguments = [*call.args, *(kw for kw in call.keywords if kw.arg != "output_loading_info")]
+    argument_text = "".join(f"    {ast.unparse(arg)},\n" for arg in arguments)
+    checked_load = f"""model, loading_info = {ast.unparse(call.func)}(
+{argument_text}    output_loading_info=True,
+)
+adapter_errors = [
+    key for field in ("missing_keys", "unexpected_keys") for key in loading_info.get(field, [])
+    if ".lora_" in key
+]
+if adapter_errors or loading_info.get("mismatched_keys") or loading_info.get("error_msgs"):
+    raise ValueError(f"Could not restore V8-N2 checkpoint weights: {{loading_info}}")
 """
-    wrap = """    if model_args.use_llm_lora:
-        model.wrap_llm_lora(r=model_args.use_llm_lora, lora_alpha=2 * model_args.use_llm_lora)
-        model.config.use_llm_lora = model_args.use_llm_lora
+    restore = """adapter = getattr(model.language_model, "peft_config", {}).get("default")
+if adapter is None or adapter.r != model_args.use_llm_lora:
+    raise ValueError("V8-N2's saved LLM adapter was not restored with the expected rank")
+model.language_model.set_adapter("default")
+if not any(".lora_" in name and param.requires_grad for name, param in model.language_model.named_parameters()):
+    raise ValueError("V8-N2's restored LLM adapter is not trainable")
+logger.info("Continuing V8-N2 from the restored LLM adapter with a fresh optimizer")
 """
-    restore = """    if not model_args.use_llm_lora:
-        raise ValueError("V8-N2 continuation needs the existing LLM LoRA rank")
-    adapter = getattr(model.language_model, "peft_config", {}).get("default")
-    if adapter is None or adapter.r != model_args.use_llm_lora:
-        raise ValueError("V8-N2's saved LLM adapter was not restored with the expected rank")
-    model.language_model.set_adapter("default")
-    if not any(".lora_" in name and param.requires_grad for name, param in model.language_model.named_parameters()):
-        raise ValueError("V8-N2's restored LLM adapter is not trainable")
-    logger.info("Continuing V8-N2 from the restored LLM adapter with a fresh optimizer")
-"""
-    return replace_once(replace_once(source, load, checked_load), wrap, restore)
+    lines = source.splitlines(keepends=True)
+    for statement, replacement in sorted(((load, checked_load), (wrap, restore)),
+                                         key=lambda edit: edit[0].lineno, reverse=True):
+        start = statement.lineno - 1
+        padding = lines[start][:statement.col_offset]
+        if padding.strip():
+            raise ValueError("Expected the trainer statement to start on its own line")
+        lines[start:statement.end_lineno] = [indent(replacement, padding)]
+    return "".join(lines)
 
 
 def main() -> None:
