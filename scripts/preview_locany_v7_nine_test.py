@@ -1,4 +1,4 @@
-"""Run one V7 or V8 weight/input combination on the held-out 205-image test split.
+"""Run one V7 or V8 weight/input combination on the held-out test or validation split.
 
 The two reference modes use only fold0/train images. Predictions are written
 incrementally so rerunning the same command resumes after an interruption.
@@ -27,6 +27,8 @@ SPLIT = ROOT / "test"
 MODELS = {
     "v7": REPO / "runs/vlm/locany_v7_p04_xy",
     "v7-g": REPO / "runs/vlm/locany_v7_g_p04_xy",
+    "v7-g-control": REPO / "runs/vlm/v7_g_pore_balance/control",
+    "v7-g-pore2x": REPO / "runs/vlm/v7_g_pore_balance/pore2x",
     "v7-n": REPO / "runs/vlm/locany_v7_n_p04_xy",
     "v8": REPO / "runs/vlm/locany_v8_p10_xy",
     "v8-g": REPO / "runs/vlm/locany_v8_g_p10_xy",
@@ -105,14 +107,14 @@ def visual_prompt(p04: str, width: int, height: int) -> str:
             + SIZE.format(width=width, height=height))
 
 
-def selected_test_images() -> list[Path]:
-    images = sorted(path for path in (SPLIT / "images").iterdir()
+def selected_images(split: Path, expected_count: int) -> list[Path]:
+    images = sorted(path for path in (split / "images").iterdir()
                     if path.suffix.lower() in {".jpg", ".jpeg", ".png"})
-    if len(images) != 205:
-        raise ValueError(f"Expected exactly 205 test images, found {len(images)}")
+    if len(images) != expected_count:
+        raise ValueError(f"Expected exactly {expected_count} images in {split}, found {len(images)}")
     for image in images:
-        if not (SPLIT / "labels" / f"{image.stem}.txt").is_file():
-            raise FileNotFoundError(f"Missing test label: {image.name}")
+        if not (split / "labels" / f"{image.stem}.txt").is_file():
+            raise FileNotFoundError(f"Missing label: {split / 'labels' / (image.stem + '.txt')}")
     return images
 
 
@@ -134,6 +136,7 @@ def main() -> None:
     parser.add_argument("--variant", choices=MODELS, required=True)
     parser.add_argument("--mode", choices=("none", "gt", "visual"), required=True)
     parser.add_argument("--prompt-version", choices=("P04", "P09", "P10"), default="P04")
+    parser.add_argument("--split", choices=("test", "val"), default="test")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--render-count", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
@@ -153,7 +156,8 @@ def main() -> None:
     for name in ("config.json", "done.txt", "loss_summary.json"):
         if not (model_path / name).is_file():
             parser.error(f"Training run is incomplete: missing {model_path / name}")
-    images = selected_test_images()
+    split = SPLIT if args.split == "test" else ROOT / "fold0/val"
+    images = selected_images(split, 205 if args.split == "test" else 164)
     prompt_path = REPO / {
         "P04": "prompts/locany_p04_balanced.txt",
         "P09": "prompts/locany_p09_inference.json",
@@ -194,8 +198,9 @@ def main() -> None:
     record_path = output / "predictions.jsonl"
     start = previous_records(record_path, images, label, settings)
     metadata_path = output / "run_metadata.json"
-    metadata = {"model": label, "model_path": str(model_path), "test_split": str(SPLIT),
-                "test_images": len(images), "test_used_for_training": False,
+    split_label = "test" if args.split == "test" else "validation"
+    metadata = {"model": label, "model_path": str(model_path), f"{split_label}_split": str(split),
+                f"{split_label}_images": len(images), "test_used_for_training": False,
                 "prompt_file": str(prompt_path), "prompt_sha256": digest(prompt_path),
                 "reference_source": "fold0/train only" if args.mode != "none" else None,
                 "generation": settings}
@@ -220,7 +225,7 @@ def main() -> None:
         for image_path in images[start:]:
             with Image.open(image_path) as opened:
                 image = opened.convert("RGB")
-            truth = ground_truth(SPLIT / "labels" / f"{image_path.stem}.txt")
+            truth = ground_truth(split / "labels" / f"{image_path.stem}.txt")
             references = {}
             prompts = {}
             answers = {}
@@ -232,7 +237,8 @@ def main() -> None:
                           alternate[args.mode].format(width=image.width, height=image.height))
                 example = None
                 if args.mode == "gt":
-                    ref = fixed_reference or choose_gt_reference(gt_refs, f"test/images/{image_path.name}", args.seed)
+                    target = image_path.relative_to(ROOT).as_posix()
+                    ref = fixed_reference or choose_gt_reference(gt_refs, target, args.seed)
                     with Image.open(ref["image"]) as opened:
                         example = opened.convert("RGB")
                     if args.prompt_version == "P04":
@@ -284,7 +290,7 @@ def main() -> None:
             stream.flush()
             image.close()
             print(f"{label}: {image_path.name} GT={len(truth)} predicted={len(predictions)} rejected={rejected}", flush=True)
-    print(f"Saved {len(images)} test predictions to {record_path}")
+    print(f"Saved {len(images)} {split_label} predictions to {record_path}")
 
 
 if __name__ == "__main__":

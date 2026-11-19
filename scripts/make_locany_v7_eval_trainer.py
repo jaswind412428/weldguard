@@ -88,7 +88,7 @@ def replace_once(source: str, old: str, new: str) -> str:
     return source.replace(old, new, 1)
 
 
-def use_existing_llm_adapter(source: str) -> str:
+def use_existing_llm_adapter(source: str, model_version: str = "V8-N2") -> str:
     main = next(node for node in ast.parse(source).body
                 if isinstance(node, ast.FunctionDef) and node.name == "main")
     loads, wraps = [], []
@@ -120,15 +120,15 @@ adapter_errors = [
     if ".lora_" in key
 ]
 if adapter_errors or loading_info.get("mismatched_keys") or loading_info.get("error_msgs"):
-    raise ValueError(f"Could not restore V8-N2 checkpoint weights: {{loading_info}}")
+    raise ValueError(f"Could not restore {model_version} checkpoint weights: {{loading_info}}")
 """
-    restore = """adapter = getattr(model.language_model, "peft_config", {}).get("default")
+    restore = f"""adapter = getattr(model.language_model, "peft_config", {{}}).get("default")
 if adapter is None or adapter.r != model_args.use_llm_lora:
-    raise ValueError("V8-N2's saved LLM adapter was not restored with the expected rank")
+    raise ValueError("{model_version}'s saved LLM adapter was not restored with the expected rank")
 model.language_model.set_adapter("default")
 if not any(".lora_" in name and param.requires_grad for name, param in model.language_model.named_parameters()):
-    raise ValueError("V8-N2's restored LLM adapter is not trainable")
-logger.info("Continuing V8-N2 from the restored LLM adapter with a fresh optimizer")
+    raise ValueError("{model_version}'s restored LLM adapter is not trainable")
+logger.info("Continuing {model_version} from the restored LLM adapter with a fresh optimizer")
 """
     lines = source.splitlines(keepends=True)
     for statement, replacement in sorted(((load, checked_load), (wrap, restore)),
@@ -144,7 +144,7 @@ logger.info("Continuing V8-N2 from the restored LLM adapter with a fresh optimiz
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--show-hash", action="store_true")
-    parser.add_argument("--continue-llm-lora", action="store_true")
+    parser.add_argument("--continue-llm-lora", nargs="?", const="v8-n2", choices=("v8-n2", "v7-g"))
     args = parser.parse_args()
     original = SOURCE.read_text(encoding="utf-8")
     modified = original
@@ -154,9 +154,13 @@ def main() -> None:
         '    logger.info(f"Dataset built in {time.time() - t_start:.2f}s")\n',
         '    logger.info(f"Dataset built in {time.time() - t_start:.2f}s")\n\n' + EVAL_BUILD)
     modified = replace_once(modified, "        eval_dataset=None,", "        eval_dataset=validation_dataset,")
-    target = CONTINUATION_TARGET if args.continue_llm_lora else TARGET
-    if args.continue_llm_lora:
+    target = TARGET
+    if args.continue_llm_lora == "v8-n2":
+        target = CONTINUATION_TARGET
         modified = use_existing_llm_adapter(modified)
+    elif args.continue_llm_lora == "v7-g":
+        target = TARGET.with_name("locany_v7_g_pore_eval_stream.py")
+        modified = use_existing_llm_adapter(modified, "V7-G")
     digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
     if target.exists() and target.read_text(encoding="utf-8") != modified:
         raise FileExistsError(f"A different trainer already exists: {target}")
